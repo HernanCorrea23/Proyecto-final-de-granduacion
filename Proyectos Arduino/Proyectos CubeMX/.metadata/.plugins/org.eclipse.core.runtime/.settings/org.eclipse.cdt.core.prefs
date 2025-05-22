@@ -1,0 +1,5 @@
+ToolChainManager/order/0.id=gcc-arm-F\:/Program Files (x86)/9 2020-q2-update/bin/arm-none-eabi-gcc.exe
+ToolChainManager/order/0.type=org.eclipse.cdt.build.gcc
+ToolChainManager/order/n=1
+eclipse.preferences.version=1
+org.eclipse.cdt.core.showSourceRootsAtTopLevelOfProject=true
