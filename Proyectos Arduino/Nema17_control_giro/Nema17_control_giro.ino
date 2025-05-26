@@ -28,23 +28,24 @@ AS5600 encoder;
 
 // --- Variables Globales ---
 float anguloEncoderAbsHome = 0.0; // Ángulo absoluto EN GRADOS que define nuestro "Home"
+long posicionLogicaActual = 0;    // Posición actual del stepper según AccelStepper (en micropasos).
 bool esperandoEntrada = false;    // Se pondrá a true DESPUÉS de la calibración inicial
-long posicionLogicaActual = 0;
-bool primerMovimientoHecho = false;
-char ultimoComandoChar = ' ';
+bool primerMovimientoHecho = false; // Bandera para la lógica de la máquina de estados en loop()
+                                    // para saber si ya se hizo el movimiento hacia +/-90 grados.
+char ultimoComandoChar = ' ';     // Guarda el último comando ('d' o 'i') para la lógica de retorno.
 
 // --- Funciones Auxiliares ---
-float normalizarAngulo(float angulo) {
-  angulo = fmod(angulo, 360.0);
+float normalizarAngulo(float angulo) {      //Toma un ángulo y lo devuelve en el rango [0, 360) grados.
+  angulo = fmod(angulo, 360.0);             //Ej: 370 -> 10, -10 -> 350
   if (angulo < 0) {
     angulo += 360.0;
   }
   return angulo;
 }
 
-float calcularDiferenciaAngular(float anguloObjetivo, float anguloActual) {
-  float diferencia = normalizarAngulo(anguloObjetivo) - normalizarAngulo(anguloActual);
-  if (diferencia > 180.0) {
+float calcularDiferenciaAngular(float anguloObjetivo, float anguloActual) {                 //Calcula la diferencia angular más corta (con signo)
+  float diferencia = normalizarAngulo(anguloObjetivo) - normalizarAngulo(anguloActual);     //entre dos ángulos. El resultado estará entre -180 y +180 grados.
+  if (diferencia > 180.0) {                                                                 //Ej: angulo1=10, angulo2=350. Diferencia directa = -340. Diferencia más corta = +20.
     diferencia -= 360.0;
   } else if (diferencia <= -180.0) {
     diferencia += 360.0;
@@ -57,8 +58,8 @@ float leerAnguloEncoderEnGrados() {
   return (float)rawAngle * RAW_A_GRADOS;
 }
 
-void correrStepperHastaPosicion(long posicionObjetivoLogico) {
-    motorPasoAPaso.moveTo(posicionObjetivoLogico);
+void correrStepperHastaPosicion(long posicionObjetivoLogico) {      //Mueve el motor a una 'posicionObjetivoLogico' (en micropasos) y espera hasta que el movimiento se complete.
+    motorPasoAPaso.moveTo(posicionObjetivoLogico);                  //Le dice a AccelStepper el nuevo objetivo.
     Serial1.print("Moviendo stepper a posicion logica: "); Serial1.println(posicionObjetivoLogico);
     while (motorPasoAPaso.distanceToGo() != 0) {
       motorPasoAPaso.run();
@@ -73,31 +74,34 @@ void imprimirIndicacion() {
 }
 
 void setup() {
-  Serial1.begin(115200);
-  Wire.begin();
-  Serial1.println("Iniciando Setup (SIN REDUCTORA)...");
+  Serial1.begin(115200);    // Inicia comunicación serie con el PC (Monitor Serie).
+  Wire.begin();             // Inicia comunicación I2C para el encoder.
+  Serial1.println("Iniciando Setup (SIN REDUCTOR)...");
   Serial1.print("PASOS_POR_GRADO_SALIDA (calculado): "); Serial1.println(PASOS_POR_GRADO_SALIDA, 4);
 
+  // Configurar pines del motor como SALIDA.
   pinMode(pinPaso, OUTPUT);
   pinMode(pinDireccion, OUTPUT);
-  digitalWrite(pinPaso, LOW);
+  digitalWrite(pinPaso, LOW);     // Estado inicial seguro.
   digitalWrite(pinDireccion, LOW);
 
+  // Inicializar el encoder AS5600.
   encoder.begin();
-  encoder.setDirection(AS5600_CLOCK_WISE); // O la dirección que sea correcta para tu montaje
+  encoder.setDirection(AS5600_CLOCK_WISE); // Configura la dirección de aumento del ángulo.
 
-  bool encoderOK = encoder.isConnected();
+  bool encoderOK = encoder.isConnected(); // Verifica si el encoder responde.
+  
   if (!encoderOK) {
       Serial1.println("ERROR: Encoder AS5600 NO detectado.");
-      while(1);
+      while(1); // Detiene el programa si no hay encoder.
   }
   Serial1.println("Encoder AS5600 detectado.");
   delay(500);
 
   // --- CALIBRACIÓN INICIAL A 0 GRADOS (CONCEPTUAL) ---
   Serial1.println("Calibrando a posicion CERO...");
-  float anguloLecturaInicial = leerAnguloEncoderEnGrados();
-  if (anguloLecturaInicial < 0.0) { // Asumiendo que -1 es error
+  float anguloLecturaInicial = leerAnguloEncoderEnGrados();               // Lee la posición física de arranque.
+  if (anguloLecturaInicial < 0.0) {                                       // Asumiendo que -1 es error
       Serial1.println("ERROR al leer angulo para calibracion inicial.");
       while(1);
   }
@@ -111,10 +115,13 @@ void setup() {
   // necesitamos movernos +10 grados.
 
   float anguloObjetivoCalibracion = 0.0; // Nuestro 0 grados conceptual
+  
+  // Calcula cuánto hay que moverse para que la 'anguloLecturaInicial' se convierta en 'anguloObjetivoCalibracion'.
   float diferenciaParaCalibrar = calcularDiferenciaAngular(anguloObjetivoCalibracion, anguloLecturaInicial);
   
   Serial1.print("Diferencia para calibrar a CERO (GRADOS): "); Serial1.println(diferenciaParaCalibrar, 2);
-  long pasosParaCalibrar = round(diferenciaParaCalibrar * PASOS_POR_GRADO_SALIDA);
+ 
+  long pasosParaCalibrar = round(diferenciaParaCalibrar * PASOS_POR_GRADO_SALIDA);  // Convierte a pasos.
   Serial1.print("Pasos para calibrar: "); Serial1.println(pasosParaCalibrar);
 
   motorPasoAPaso.setMaxSpeed(VELOCIDAD_MAXIMA / 2); // Usar velocidad más lenta para calibrar
@@ -124,7 +131,7 @@ void setup() {
   correrStepperHastaPosicion(pasosParaCalibrar); // Mover los pasos calculados
 
   delay(500); // Esperar que se asiente
-  anguloEncoderAbsHome = leerAnguloEncoderEnGrados(); // Este es nuestro nuevo HOME absoluto
+  anguloEncoderAbsHome = leerAnguloEncoderEnGrados(); // Lee la posición física final después de calibrar. Este es nuestro nuevo HOME absoluto
   if (anguloEncoderAbsHome < 0.0) {
       Serial1.println("ERROR al leer angulo para definir HOME.");
       while(1);
