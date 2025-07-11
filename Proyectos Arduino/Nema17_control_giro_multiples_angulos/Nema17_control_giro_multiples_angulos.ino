@@ -14,7 +14,7 @@ const float RELACION_REDUCTOR = 37.0;
 const float PASOS_POR_REV_MOTOR_EFECTIVO = PASOS_POR_REV_MOTOR * MICROPASOS;
 const float PASOS_POR_REV_SALIDA = PASOS_POR_REV_MOTOR_EFECTIVO * RELACION_REDUCTOR;
 const float PASOS_MOTOR_POR_GRADO_SALIDA = PASOS_POR_REV_SALIDA / 360.0;
-
+const int MAX_PUNTOS_LOG = 500; // Número máximo de puntos a registrar. ¡Ajustar según la RAM de la Blue Pill!
 
 const float VELOCIDAD_MAXIMA = 1000.0 * MICROPASOS;
 const float ACELERACION = 600.0 * MICROPASOS;
@@ -32,6 +32,11 @@ long posicionContinuaHome = 0;
 bool homingCompletado = false;
 bool movimientoEnProgreso = false;
 float anguloObjetivoRelativoActual = 0.0;
+
+float log_angulos[MAX_PUNTOS_LOG];
+unsigned long log_tiempo[MAX_PUNTOS_LOG];
+int puntos_log_actuales = 0;
+bool registrando_datos = false;
 
 
 // ==========================================================
@@ -102,6 +107,49 @@ void correrStepperHastaPosicion(long posicionObjetivoLogico) {
 void imprimirIndicacion() {
   Serial1.println("------------------------------------");
   Serial1.println("d: +90 | i: -90 | e: +45 | q: -45");
+}
+
+// Inicia el proceso de registro de datos para un nuevo ensayo.
+void iniciarRegistro() {
+  puntos_log_actuales = 0;
+  registrando_datos = true;
+  Serial1.println("OK;Registro iniciado.");
+}
+
+// Detiene y envía los datos registrados a MATLAB.
+void finalizarYEnviarRegistro() {
+  registrando_datos = false;
+  Serial1.println("--- INICIO_DATOS ---");
+  for (int i = 0; i < puntos_log_actuales; i++) {
+    Serial1.print(log_tiempo[i]);
+    Serial1.print(",");
+    Serial1.println(log_angulos[i], 4); // Enviar con 4 decimales para precisión
+  }
+  Serial1.println("--- FIN_DATOS ---");
+  puntos_log_actuales = 0; // Limpiar para el próximo registro
+}
+
+// La función principal de movimiento que ahora también registra datos.
+void moverYRegistrar(float anguloObjetivo) {
+  long pasos_relativos_motor = round(anguloObjetivo * PASOS_MOTOR_POR_GRADO_SALIDA);
+  motorPasoAPaso.move(pasos_relativos_motor);
+
+  unsigned long tiempo_inicio_mov = millis();
+
+  while (motorPasoAPaso.distanceToGo() != 0) {
+    motorPasoAPaso.run();
+
+    // Registrar datos a intervalos regulares (ej. cada 10ms)
+    if (registrando_datos && (millis() % 10 == 0) && (puntos_log_actuales < MAX_PUNTOS_LOG)) {
+      // Leemos la posición REAL del encoder en el eje de salida
+      long pos_continua_actual = leerPosicionContinuaEncoder() - posicionContinuaHome;
+      float angulo_real_salida = (float)pos_continua_actual / (PASOS_POR_REV_SALIDA / 360.0);
+
+      log_angulos[puntos_log_actuales] = angulo_real_salida;
+      log_tiempo[puntos_log_actuales] = millis() - tiempo_inicio_mov;
+      puntos_log_actuales++;
+    }
+  }
 }
 
 // ==========================================================
