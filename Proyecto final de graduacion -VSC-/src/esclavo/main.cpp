@@ -1,34 +1,70 @@
 #include <Arduino.h>
 
-// Definir el pin de control para el módulo MAX485 (DE/RE)
-const int MAX485_DE_RE = PA8;
+// ========================================================================
+// IMPORTANTE: CAMBIAR ESTE VALOR ANTES DE SUBIR EL CÓDIGO A CADA ESCLAVO
+// Usa 2 para el Esclavo 2, y 3 para el Esclavo 3.
+#define SLAVE_ID 3
+// ========================================================================
+
+// --- Pines de Hardware ---
+const int LED_PIN = PC13;      // LED incorporado en la Blue Pill.
+const int RS485_DE_PIN = PA8; // Pin para controlar el transceiver RS-485 (Driver Enable).
 
 void setup() {
-  // Inicializar el puerto serie (UART2) para monitoreo
-  // PA2 (TX) y PA3 (RX)
-  Serial2.begin(115200);
+  // Configurar pines
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, HIGH); // Inicia apagado (lógica invertida)
+  pinMode(RS485_DE_PIN, OUTPUT);
+  digitalWrite(RS485_DE_PIN, LOW); // Inicia en modo recepción
 
-  // Inicializar el puerto serie de Hardware (UART1) para la comunicación RS-485
-  // PA9 (TX) y PA10 (RX)
+  // Iniciar comunicación serial para el bus RS-485
   Serial1.begin(9600);
-
-  // Configurar el pin de control del MAX485 como salida
-  pinMode(MAX485_DE_RE, OUTPUT);
-
-  // Poner y mantener el MAX485 en modo de recepción
-  digitalWrite(MAX485_DE_RE, LOW);
-
-  Serial2.println("Esclavo RS-485 inicializado. Esperando mensajes...");
 }
 
 void loop() {
-  // Comprobar si hay datos disponibles en el bus RS-485
+  // Verificar si hay datos disponibles en el bus RS-485 (estando en modo recepción)
   if (Serial1.available() > 0) {
-    // Leer el mensaje completo hasta el carácter de nueva línea
-    String receivedMessage = Serial1.readStringUntil('\n');
+    String message = Serial1.readStringUntil('\n');
+    message.trim();
 
-    // Mostrar el mensaje recibido en el monitor serie del esclavo
-    Serial2.print("Mensaje recibido: ");
-    Serial2.println(receivedMessage);
+    // --- Procesamiento del Mensaje ---
+    int colonIndex = message.indexOf(':');
+
+    // Si el formato es inválido, se ignora. El maestro lo detectará como timeout.
+    if (colonIndex == -1) {
+      return;
+    }
+
+    int receivedId = message.substring(0, colonIndex).toInt();
+
+    // Verificar si el mensaje es para este esclavo
+    if (receivedId == SLAVE_ID) {
+      String cmdStr = message.substring(colonIndex + 1);
+      String response;
+
+      // Procesar el comando y preparar la respuesta
+      if (cmdStr.equalsIgnoreCase("TOGGLE_LED")) {
+        digitalWrite(LED_PIN, !digitalRead(LED_PIN));
+        response = String(SLAVE_ID) + ":OK";
+      } else {
+        response = String(SLAVE_ID) + ":ERROR_UNKNOWN_COMMAND";
+      }
+      
+      // --- Enviar la respuesta de vuelta al Maestro ---
+      // 1. Poner el transceiver en modo transmisión
+      digitalWrite(RS485_DE_PIN, HIGH);
+      delay(5); // Pequeña espera para asegurar el cambio de estado del transceiver.
+
+      // 2. Enviar la respuesta
+      Serial1.println(response);
+      
+      // 3. Esperar a que se envíen todos los datos
+      Serial1.flush(); 
+      delay(5);
+
+      // 4. Volver a poner el transceiver en modo recepción
+      digitalWrite(RS485_DE_PIN, LOW);
+    }
+    // Si el mensaje no es para este esclavo, se ignora.
   }
 }
