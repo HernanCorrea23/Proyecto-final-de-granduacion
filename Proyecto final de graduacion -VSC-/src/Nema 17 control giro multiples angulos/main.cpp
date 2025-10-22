@@ -11,7 +11,7 @@ const int pinHabilitar = PA7; // Conectar al pin EN del A4988. LOW lo habilita, 
 
 const float PASOS_POR_REV_MOTOR = 200.0;
 const int MICROPASOS = 16;
-const float RELACION_REDUCTOR = 1; 
+const float RELACION_REDUCTOR = 37; 
 const float PASOS_POR_REV_MOTOR_EFECTIVO = PASOS_POR_REV_MOTOR * MICROPASOS;
 const float PASOS_POR_REV_SALIDA = PASOS_POR_REV_MOTOR_EFECTIVO * RELACION_REDUCTOR;
 const float PASOS_MOTOR_POR_GRADO_SALIDA = PASOS_POR_REV_SALIDA / 360.0;
@@ -158,21 +158,56 @@ void moverYRegistrar(float anguloObjetivo) {
 // ==========================================================
 void setup() {
   Serial1.begin(115200);
+  while (!Serial1) {
+    ; // Esperar a que el puerto serie se conecte
+  }
+  Serial1.println("\n--- Inicio de la secuencia de Setup (v2) ---");
+
+  // 1. Inicializar periféricos principales primero.
+  Serial1.println("Inicializando bus I2C (Wire.begin())...");
   Wire.begin();
-  
+  delay(100); // Pausa para que el bus I2C se estabilice.
+
+  // 2. Configurar pines de GPIO para el motor.
+  Serial1.println("Configurando pines del motor...");
   pinMode(pinPaso, OUTPUT);
   pinMode(pinDireccion, OUTPUT);
   pinMode(pinHabilitar, OUTPUT);
-  
-  digitalWrite(pinHabilitar, HIGH); // Deshabilitar motor para alinear a mano.
+  digitalWrite(pinHabilitar, HIGH); // Deshabilitar motor.
 
+  // 3. Configurar el encoder.
   encoder.begin();
   encoder.setDirection(AS5600_CLOCK_WISE);
-  if (!encoder.isConnected()) {
-    Serial1.println("ERROR: Encoder no detectado!");
-    while (1);
+  Serial1.println("Librería de encoder configurada.");
+
+  // 4. Bucle de reintentos para la conexión (sin el Wire.end() previo).
+  int maxRetries = 10;
+  bool encoderConnected = false;
+  Serial1.println("Iniciando intentos de conexión con el encoder...");
+  for (int i = 0; i < maxRetries; i++) {
+    // La llamada a isConnected() es la que realmente prueba la comunicación I2C.
+    if (encoder.isConnected()) {
+      encoderConnected = true;
+      Serial1.print("Intento ["); Serial1.print(i + 1); Serial1.print("]: ");
+      Serial1.println("¡Conexión exitosa!");
+      break;
+    } else {
+      Serial1.print("Intento ["); Serial1.print(i + 1); Serial1.print("]: ");
+      Serial1.println("Fallo.");
+      delay(500); // Esperar antes de reintentar.
+    }
   }
-  
+
+  // 5. Verificación final.
+  if (!encoderConnected) {
+    Serial1.println("*****************************************************");
+    Serial1.println("Error Crítico: No se pudo conectar con el encoder AS5600.");
+    Serial1.println("El sistema se detendrá.");
+    Serial1.println("*****************************************************");
+    while (1) { }
+  }
+
+  Serial1.println("Encoder detectado y listo.");
   Serial1.println("--- MODO CALIBRACION MANUAL ---");
   Serial1.println("1. Alinee manualmente las marcas.");
   Serial1.println("2. Envie la tecla 'h' para establecer el Home.");
