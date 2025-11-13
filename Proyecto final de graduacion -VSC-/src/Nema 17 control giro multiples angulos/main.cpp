@@ -9,19 +9,24 @@ const int pinPaso = PA5;
 const int pinDireccion = PA6;
 const int pinHabilitar = PA7; // Conectar al pin EN del A4988. LOW lo habilita, HIGH lo deshabilita.
 
-const float PASOS_POR_REV_MOTOR = 200.0;
-const int MICROPASOS = 16;
-const float RELACION_REDUCTOR = 37; 
+// --- PARÁMETROS A AJUSTAR ---
+// Si el motor no gira el ángulo exacto, revisa estos 3 valores:
+const float PASOS_POR_REV_MOTOR = 200.0;   // Comunes: 200 (1.8°/paso) o 400 (0.9°/paso)
+const int MICROPASOS = 32;                  // Ajustar según la configuración de micropasos del driver (DRV8825: MODE0, MODE1, MODE2)
+const float RELACION_REDUCTOR = 37.0;      // Relación de tu caja reductora (ej: 37.0 para 37:1)
+// --- FIN DE PARÁMETROS A AJUSTAR ---
+
 const float PASOS_POR_REV_MOTOR_EFECTIVO = PASOS_POR_REV_MOTOR * MICROPASOS;
-const float PASOS_POR_REV_SALIDA = PASOS_POR_REV_MOTOR_EFECTIVO * RELACION_REDUCTOR;
+const float PASOS_POR_REV_SALIDA = PASOS_POR_REV_MOTOR_EFECTIVO * RELACION_REDUCTOR; // Pasos necesarios para una revolución completa en el eje de salida
 const float PASOS_MOTOR_POR_GRADO_SALIDA = PASOS_POR_REV_SALIDA / 360.0;
 const int MAX_PUNTOS_LOG = 500; // Número máximo de puntos a registrar. ¡Ajustar según la RAM de la Blue Pill!
 
-const float VELOCIDAD_MAXIMA = 1000.0 * MICROPASOS;
-const float ACELERACION = 600.0 * MICROPASOS;
+// Velocidad y aceleración reducidas para evitar pérdida de pasos. Ajústalas según tu motor.
+const float VELOCIDAD_MAXIMA = 2000 * MICROPASOS;
+const float ACELERACION = 1500 * MICROPASOS;
 const float TOLERANCIA_ANGULO = 2.5;
 
-// --- Objetos ---
+// --- Objetos
 AccelStepper motorPasoAPaso(AccelStepper::DRIVER, pinPaso, pinDireccion);
 AS5600 encoder;
 
@@ -132,15 +137,16 @@ void finalizarYEnviarRegistro() {
 
 // La función principal de movimiento que ahora también registra datos.
 void moverYRegistrar(float anguloObjetivo) {
-  long pasos_relativos_motor = round(anguloObjetivo * PASOS_MOTOR_POR_GRADO_SALIDA);
-  motorPasoAPaso.move(pasos_relativos_motor);
+  long pasosRelativosMotor = round(anguloObjetivo * PASOS_MOTOR_POR_GRADO_SALIDA);
+  long posicionObjetivo = motorPasoAPaso.currentPosition() + pasosRelativosMotor;
+  motorPasoAPaso.moveTo(posicionObjetivo);
 
   unsigned long tiempo_inicio_mov = millis();
 
   while (motorPasoAPaso.distanceToGo() != 0) {
     motorPasoAPaso.run();
 
-    // Registrar datos a intervalos regulares (ej. cada 10ms)
+    //Registrar datos a intervalos regulares (ej. cada 10ms)
     if (registrando_datos && (millis() % 10 == 0) && (puntos_log_actuales < MAX_PUNTOS_LOG)) {
       // Leemos la posición REAL del encoder en el eje de salida
       long pos_continua_actual = leerPosicionContinuaEncoder() - posicionContinuaHome;
@@ -235,7 +241,9 @@ void loop() {
         vueltasCompletas = 0;
         posicionContinuaHome = lecturaEncoderAnterior; 
         
-        long posInicialLogica = round((float)posicionContinuaHome * PASOS_POR_REV_MOTOR_EFECTIVO / 4096.0);
+        // CORRECCIÓN: La posición lógica inicial debe considerar la relación de la caja reductora.
+        // 1 vuelta del encoder (4096) equivale a PASOS_POR_REV_SALIDA en el motor.
+        long posInicialLogica = round((float)posicionContinuaHome * PASOS_POR_REV_SALIDA / 4096.0);
         motorPasoAPaso.setCurrentPosition(posInicialLogica);
         
         digitalWrite(pinHabilitar, LOW); // Habilitar motor.
@@ -257,46 +265,8 @@ void loop() {
 
   // --- FASE 2: OPERACIÓN NORMAL (después del homing) ---
   
-  // Ejecutar el stepper si hay un movimiento en curso.
-  if (movimientoEnProgreso) {
-    motorPasoAPaso.run();
-  }
-
-  // Verificar si el movimiento de ida se ha completado
-  if (movimientoEnProgreso && motorPasoAPaso.distanceToGo() == 0) {
-      Serial1.println("   Llego al objetivo.");
-      movimientoEnProgreso = false;
-
-      // VERIFICACIÓN CON ENCODER
-      long posicionContinuaFinal = leerPosicionContinuaEncoder();
-      long pasosComandadosNetos = round(anguloObjetivoRelativoActual * PASOS_MOTOR_POR_GRADO_SALIDA);
-      long posicionContinuaObjetivoEsperada = posicionContinuaHome + round((float)pasosComandadosNetos * 4096.0 / PASOS_POR_REV_MOTOR_EFECTIVO);
-      long errorPasosContinuos = posicionContinuaObjetivoEsperada - posicionContinuaFinal;
-      float errorGradosSalida = (float)errorPasosContinuos / (4096.0 / PASOS_POR_REV_MOTOR_EFECTIVO) / PASOS_MOTOR_POR_GRADO_SALIDA;
-      
-      Serial1.print("   Verificacion Pos Continua Encoder: "); Serial1.println(posicionContinuaFinal);
-      Serial1.print("   Error vs Esperado (grados salida): "); Serial1.println(errorGradosSalida, 2);
-      if (abs(errorGradosSalida) > TOLERANCIA_ANGULO) Serial1.println("   ADVERTENCIA: Error angular grande!");
-      
-      // ESPERAR Y REGRESAR
-      Serial1.println("   Esperando 1 segundo...");
-      delay(1000);
-      Serial1.println("   Regresando a posicion Home...");
-      
-      long posicionLogicaHome = round((float)posicionContinuaHome * PASOS_POR_REV_MOTOR_EFECTIVO / 4096.0);
-      correrStepperHastaPosicion(posicionLogicaHome);
-      
-      // FIN DEL CICLO, resincronizar y esperar nuevo comando
-      posicionContinuaHome = leerPosicionContinuaEncoder(); 
-      posicionLogicaHome = round((float)posicionContinuaHome * PASOS_POR_REV_MOTOR_EFECTIVO / 4096.0);
-      motorPasoAPaso.setCurrentPosition(posicionLogicaHome);
-      
-      Serial1.print("   Posicion resincronizada. Nuevo Home Continuo: "); Serial1.println(posicionContinuaHome);
-      imprimirIndicacion();
-  }
-
   // Leer comandos solo si no hay un movimiento en curso
-  if (!movimientoEnProgreso && Serial1.available() > 0) {
+  if (Serial1.available() > 0) {
     char comando = Serial1.read();
     comando = tolower(comando);
     
@@ -309,15 +279,39 @@ void loop() {
     }
 
     if (comandoValido) {
-      movimientoEnProgreso = true;
       Serial1.print("\nComando '"); Serial1.print(comando); Serial1.print("': Moviendo "); 
       Serial1.print(anguloObjetivoRelativoActual); Serial1.println(" grados en la salida.");
 
+      // --- MOVIMIENTO DE IDA ---
       long pasosRelativosMotor = round(anguloObjetivoRelativoActual * PASOS_MOTOR_POR_GRADO_SALIDA);
-      long posicionContinuaObjetivo = posicionContinuaHome + round((float)pasosRelativosMotor * 4096.0 / PASOS_POR_REV_MOTOR_EFECTIVO);
-      long posicionLogicaObjetivo = round((float)posicionContinuaObjetivo * PASOS_POR_REV_MOTOR_EFECTIVO / 4096.0);
-
+      long posicionLogicaObjetivo = motorPasoAPaso.currentPosition() + pasosRelativosMotor;
       correrStepperHastaPosicion(posicionLogicaObjetivo);
+      Serial1.println("   Llego al objetivo.");
+
+      // --- VERIFICACIÓN CON ENCODER ---
+      long posContinuaFinal = leerPosicionContinuaEncoder();
+      float anguloRealFinal = (float)(posContinuaFinal - posicionContinuaHome) * RAW_A_GRADOS;
+      float errorGradosSalida = anguloObjetivoRelativoActual - anguloRealFinal;
+      
+      Serial1.print("   Angulo objetivo: "); Serial1.print(anguloObjetivoRelativoActual, 2);
+      Serial1.print(" | Angulo real medido: "); Serial1.println(anguloRealFinal, 2);
+      Serial1.print("   Error angular (grados salida): "); Serial1.println(errorGradosSalida, 2);
+      if (abs(errorGradosSalida) > TOLERANCIA_ANGULO) Serial1.println("   ADVERTENCIA: Error angular grande!");
+
+      // --- ESPERAR Y REGRESAR ---
+      Serial1.println("   Esperando 1 segundo...");
+      delay(1000);
+      Serial1.println("   Regresando a posicion Home...");
+      long posicionLogicaHome = round((float)posicionContinuaHome * PASOS_POR_REV_SALIDA / 4096.0);
+      correrStepperHastaPosicion(posicionLogicaHome);
+
+      // --- FIN DEL CICLO: Resincronizar y esperar nuevo comando ---
+      posicionContinuaHome = leerPosicionContinuaEncoder(); 
+      posicionLogicaHome = round((float)posicionContinuaHome * PASOS_POR_REV_SALIDA / 4096.0);
+      motorPasoAPaso.setCurrentPosition(posicionLogicaHome);
+      
+      Serial1.print("   Posicion resincronizada. Nuevo Home Continuo: "); Serial1.println(posicionContinuaHome);
+      imprimirIndicacion();
     }
   }
 }

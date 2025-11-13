@@ -8,7 +8,7 @@ const int EN_PIN = PA7;
 
 // --- Parámetros del Motor ---
 const int MOTOR_STEPS_PER_REV = 200;
-const int MICROSTEPS = 16;
+const int MICROSTEPS = 2;  //antes 16
 const long STEPS_PER_REVOLUTION = MOTOR_STEPS_PER_REV * MICROSTEPS;
 
 // --- Creación del objeto AccelStepper ---
@@ -39,8 +39,8 @@ void setup() {
   stepper.setPinsInverted(false, false, true); 
   
   // Establecer velocidad y aceleración máximas en (micro)pasos/segundo
-  stepper.setMaxSpeed(6400); // 6400 micropasos/seg = 2 rev/seg
-  stepper.setAcceleration(3200); // 3200 micropasos/seg^2
+  stepper.setMaxSpeed(8000); //         fallo 6400 micropasos/seg = 2 rev/seg
+  stepper.setAcceleration(6400); //    fallo 3200 micropasos/seg^2
 
   Serial1.println("Motor configurado. La secuencia se ejecutará una vez.");
 }
@@ -56,7 +56,7 @@ void runTestSequence() {
   // Habilitar el motor antes de mover
   stepper.enableOutputs();
   
-  long targetSteps = 8 * STEPS_PER_REVOLUTION;
+  long targetSteps = 80 * STEPS_PER_REVOLUTION;
 
   // 1. Girar 5 revoluciones en un sentido
   Serial1.print("Paso 1: Girando 8 revoluciones (");
