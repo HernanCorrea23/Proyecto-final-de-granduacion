@@ -13,7 +13,7 @@ const int pinHabilitar = PA7; // Conectar al pin EN del A4988. LOW lo habilita, 
 // Si el motor no gira el ángulo exacto, revisa estos 3 valores:
 const float PASOS_POR_REV_MOTOR = 200.0;   // Comunes: 200 (1.8°/paso) o 400 (0.9°/paso)
 const int MICROPASOS = 32;                  // Ajustar según la configuración de micropasos del driver (DRV8825: MODE0, MODE1, MODE2)
-const float RELACION_REDUCTOR = 37.0;      // Relación de tu caja reductora (ej: 37.0 para 37:1)
+const float RELACION_REDUCTOR = 39.0;      // Relación de tu caja reductora (ej: 37.0 para 37:1)
 // --- FIN DE PARÁMETROS A AJUSTAR ---
 
 const float PASOS_POR_REV_MOTOR_EFECTIVO = PASOS_POR_REV_MOTOR * MICROPASOS;
@@ -36,6 +36,7 @@ long lecturaEncoderAnterior = 0;
 long posicionContinuaHome = 0;
 
 bool homingCompletado = false;
+int homingDirection = 0; // 0=stop, 1=derecha, -1=izquierda
 bool movimientoEnProgreso = false;
 float anguloObjetivoRelativoActual = 0.0;
 
@@ -214,9 +215,9 @@ void setup() {
   }
 
   Serial1.println("Encoder detectado y listo.");
-  Serial1.println("--- MODO CALIBRACION MANUAL ---");
-  Serial1.println("1. Alinee manualmente las marcas.");
-  Serial1.println("2. Envie la tecla 'h' para establecer el Home.");
+  Serial1.println("--- MODO CALIBRACION ---");
+  Serial1.println("Use 'j' (izquierda) y 'k' (derecha) para mover el motor.");
+  Serial1.println("Presione 'h' para detener el movimiento y establecer el Home.");
   Serial1.println("------------------------------------");
 }
 
@@ -226,38 +227,69 @@ void setup() {
 void loop() {
   // --- FASE 1: ESPERANDO CALIBRACIÓN DE HOME ---
   if (!homingCompletado) {
-    if (millis() % 500 < 20) {
-        Serial1.print("\rAngulo actual para alinear (EJE MOTOR): ");
-        Serial1.print(leerAnguloEncoderEnGrados(), 2);
-        Serial1.print("   ");
+    
+    // Si el motor debe moverse para el homing, se ejecuta run()
+    if (homingDirection != 0) {
+      motorPasoAPaso.run(); // Mueve el motor hacia el objetivo lejano
     }
 
+    // --- Manejo de comandos seriales para el homing ---
     if (Serial1.available() > 0) {
-      char comando = Serial1.read();
-      if (comando == 'h' || comando == 'H') {
-        Serial1.println("\nComando 'h' recibido. Estableciendo Home...");
-        
-        lecturaEncoderAnterior = leerPasosCrudosEncoder();
-        vueltasCompletas = 0;
-        posicionContinuaHome = lecturaEncoderAnterior; 
-        
-        // CORRECCIÓN: La posición lógica inicial debe considerar la relación de la caja reductora.
-        // 1 vuelta del encoder (4096) equivale a PASOS_POR_REV_SALIDA en el motor.
-        long posInicialLogica = round((float)posicionContinuaHome * PASOS_POR_REV_SALIDA / 4096.0);
-        motorPasoAPaso.setCurrentPosition(posInicialLogica);
-        
-        digitalWrite(pinHabilitar, LOW); // Habilitar motor.
-        
-        Serial1.print("Home establecido en el angulo (GRADOS): "); Serial1.println(leerAnguloEncoderEnGrados(), 2);
-        Serial1.print("Posicion Continua Home (pasos crudos): "); Serial1.println(posicionContinuaHome);
-        Serial1.print("Posicion Logica Stepper Inicial: "); Serial1.println(posInicialLogica);
-        Serial1.println("--- MODO OPERACION NORMAL ---");
-        
-        motorPasoAPaso.setMaxSpeed(VELOCIDAD_MAXIMA);
-        motorPasoAPaso.setAcceleration(ACELERACION);
-        
-        homingCompletado = true;
-        imprimirIndicacion();
+      char comando = tolower(Serial1.read());
+
+      switch (comando) {
+        case 'j': // Mover a la izquierda
+          if (homingDirection != -1) {
+            Serial1.println("Homing: Moviendo a la izquierda. Presione 'h' para fijar home.");
+            digitalWrite(pinHabilitar, LOW); // Habilitar motor
+            motorPasoAPaso.setMaxSpeed(VELOCIDAD_MAXIMA / 4); // Velocidad de homing
+            motorPasoAPaso.setAcceleration(ACELERACION / 4);
+            motorPasoAPaso.moveTo(-2000000000); // Un número negativo muy grande
+            homingDirection = -1;
+          }
+          break;
+
+        case 'k': // Mover a la derecha
+          if (homingDirection != 1) {
+            Serial1.println("Homing: Moviendo a la derecha. Presione 'h' para fijar home.");
+            digitalWrite(pinHabilitar, LOW); // Habilitar motor
+            motorPasoAPaso.setMaxSpeed(VELOCIDAD_MAXIMA / 4); // Velocidad de homing
+            motorPasoAPaso.setAcceleration(ACELERACION / 4);
+            motorPasoAPaso.moveTo(2000000000); // Un número positivo muy grande
+            homingDirection = 1;
+          }
+          break;
+
+        case 'h': // Detener y establecer Home
+          Serial1.println("\nComando 'h' recibido. Deteniendo motor...");
+          homingDirection = 0;
+          motorPasoAPaso.stop(); // Detiene el motor usando la deceleración
+          motorPasoAPaso.runToPosition(); // Espera a que el motor se detenga completamente
+          
+          Serial1.println("Motor detenido. Estableciendo Home en la posicion actual...");
+          
+          // --- Lógica para establecer el Home (idéntica a la versión original) ---
+          lecturaEncoderAnterior = leerPasosCrudosEncoder();
+          vueltasCompletas = 0;
+          posicionContinuaHome = lecturaEncoderAnterior; 
+          
+          long posInicialLogica = round((float)posicionContinuaHome * PASOS_POR_REV_SALIDA / 4096.0);
+          motorPasoAPaso.setCurrentPosition(posInicialLogica);
+          
+          digitalWrite(pinHabilitar, LOW); // Asegurarse que el motor sigue habilitado
+          
+          Serial1.print("Home establecido. Angulo (GRADOS): "); Serial1.println(leerAnguloEncoderEnGrados(), 2);
+          Serial1.print("Referencia Home (pasos crudos encoder): "); Serial1.println(posicionContinuaHome);
+          Serial1.print("Posicion Logica Stepper Inicial: "); Serial1.println(posInicialLogica);
+          Serial1.println("--- MODO OPERACION NORMAL ---");
+          
+          // Restaurar velocidad y aceleración para la operación normal
+          motorPasoAPaso.setMaxSpeed(VELOCIDAD_MAXIMA);
+          motorPasoAPaso.setAcceleration(ACELERACION);
+          
+          homingCompletado = true;
+          imprimirIndicacion();
+          break;
       }
     }
     return; // Salir del loop y volver a empezar si no se ha calibrado.
@@ -267,8 +299,7 @@ void loop() {
   
   // Leer comandos solo si no hay un movimiento en curso
   if (Serial1.available() > 0) {
-    char comando = Serial1.read();
-    comando = tolower(comando);
+    char comando = tolower(Serial1.read());
     
     bool comandoValido = false;
     switch(comando) {
