@@ -3,76 +3,137 @@
 #include <Wire.h>
 #include "AS5600.h"
 
-// --- Constantes ---
+// ==========================================================
+// --- CONFIGURACIÓN Y CONSTANTES ---
+// ==========================================================
 const float RAW_A_GRADOS = 360.0 / 4096.0;
 const int pinPaso = PA5;
 const int pinDireccion = PA6;
 const int pinHabilitar = PA7;
 
+// --- PARÁMETROS MECÁNICOS ---
 const float PASOS_POR_REV_MOTOR = 200.0;
-const int MICROPASOS = 16;
-const float RELACION_REDUCTOR = 37.0;
-const float PASOS_POR_REV_SALIDA = (PASOS_POR_REV_MOTOR * MICROPASOS) * RELACION_REDUCTOR;
-const float PASOS_POR_GRADO_SALIDA = PASOS_POR_REV_SALIDA / 360.0;
-const int MAX_PUNTOS_LOG = 500;
+const int MICROPASOS = 32;                  
+const float RELACION_REDUCTOR = 39.0;      
+const float BACKLASH_COMPENSATION_GRADOS = 1.5; 
 
-const float VELOCIDAD_MAXIMA = 1000.0 * MICROPASOS;
-const float ACELERACION = 600.0 * MICROPASOS;
+// Cálculos
+const float PASOS_POR_REV_MOTOR_EFECTIVO = PASOS_POR_REV_MOTOR * MICROPASOS;
+const float PASOS_POR_REV_SALIDA = PASOS_POR_REV_MOTOR_EFECTIVO * RELACION_REDUCTOR; 
+const float PASOS_MOTOR_POR_GRADO_SALIDA = PASOS_POR_REV_SALIDA / 360.0;
 
-// --- Objetos ---
-AccelStepper motorPasoAPaso(AccelStepper::DRIVER, pinPaso, pinDireccion);
-AS5600 encoder; // El encoder ahora se usa solo para verificación
+// Velocidad (Segura)
+const float VELOCIDAD_MAXIMA = 800.0 * MICROPASOS; 
+const float ACELERACION = 300.0 * MICROPASOS; 
 
-// --- Variables Globales ---
-// Ya no necesitamos las variables de seguimiento del encoder para el control
-bool homingCompletado = false;
-
-// Variables para el logging
+// --- LOGGING DE DATOS ---
+const int MAX_PUNTOS_LOG = 600; // Ajustado para la RAM de la BluePill
 float log_angulos[MAX_PUNTOS_LOG];
 unsigned long log_tiempo[MAX_PUNTOS_LOG];
-int puntos_log_actuales = 0;
-bool registrando_datos = false;
-unsigned long tiempo_inicio_ensayo = 0;
+int indice_log = 0;
+unsigned long tiempo_inicio_movimiento = 0;
+
+// Objetos
+AccelStepper motorPasoAPaso(AccelStepper::DRIVER, pinPaso, pinDireccion);
+AS5600 encoder;
+
+// Variables Globales
+long vueltasCompletas = 0;
+long lecturaEncoderAnterior = 0;
+long encoderOffset = 0; 
+bool homingCompletado = false;
+int lastMoveDirection = 0; 
 
 // ==========================================================
 // --- FUNCIONES AUXILIARES ---
 // ==========================================================
 
-void iniciarRegistro() {
-  puntos_log_actuales = 0;
-  registrando_datos = true;
-  tiempo_inicio_ensayo = millis();
-  Serial1.println("OK;Registro iniciado.");
+long leerPasosCrudosEncoder() {
+  return encoder.readAngle();
 }
 
-void finalizarYEnviarRegistro() {
-  registrando_datos = false;
-  Serial1.println("--- INICIO_DATOS ---");
-  for (int i = 0; i < puntos_log_actuales; i++) {
-    Serial1.print(log_tiempo[i]);
-    Serial1.print(",");
-    Serial1.println(log_angulos[i], 4);
+long leerPosicionContinuaEncoder() {
+  long lecturaCrudaActual = leerPasosCrudosEncoder();
+  long diferenciaCruda = lecturaCrudaActual - lecturaEncoderAnterior;
+  if (diferenciaCruda < -2048) vueltasCompletas++;
+  else if (diferenciaCruda > 2048) vueltasCompletas--;
+  lecturaEncoderAnterior = lecturaCrudaActual;
+  return (vueltasCompletas * 4096) + lecturaCrudaActual;
+}
+
+float leerAnguloEncoderEnGrados() {
+  long posicionRelativa = leerPosicionContinuaEncoder() - encoderOffset;
+  return (float)posicionRelativa * RAW_A_GRADOS;
+}
+
+// Función para registrar datos en RAM sin bloquear
+void registrarDato() {
+  if (indice_log < MAX_PUNTOS_LOG) {
+      log_angulos[indice_log] = leerAnguloEncoderEnGrados();
+      log_tiempo[indice_log] = millis() - tiempo_inicio_movimiento;
+      indice_log++;
   }
-  Serial1.println("--- FIN_DATOS ---");
-  puntos_log_actuales = 0;
 }
 
-// Mueve el motor a una POSICIÓN ABSOLUTA en pasos y espera a que termine.
-void moverA_PasosAbsolutos(long pasos_objetivo) {
-  motorPasoAPaso.moveTo(pasos_objetivo); // Usamos moveTo para posiciones absolutas
+// Función que mueve el motor y graba datos simultáneamente
+void correrStepperHastaPosicion(long posicionObjetivoLogico, bool grabar) {
+  motorPasoAPaso.moveTo(posicionObjetivoLogico);
+  unsigned long ultimaLectura = 0;
+  unsigned long ultimoLog = 0;
 
   while (motorPasoAPaso.distanceToGo() != 0) {
     motorPasoAPaso.run();
-  }
+    
+    unsigned long ahora = millis();
 
-  // Si estamos registrando, guardamos un punto de datos al finalizar el movimiento
-  if (registrando_datos && (puntos_log_actuales < MAX_PUNTOS_LOG)) {
-    // Calculamos el ángulo real desde la posición en pasos de la librería
-    float angulo_real = (float)motorPasoAPaso.currentPosition() / PASOS_POR_GRADO_SALIDA;
-    log_angulos[puntos_log_actuales] = angulo_real;
-    log_tiempo[puntos_log_actuales] = millis() - tiempo_inicio_ensayo;
-    puntos_log_actuales++;
+    // 1. Actualizar Encoder (rápido, para no perder vueltas)
+    if (ahora - ultimaLectura >= 2) {
+       leerPosicionContinuaEncoder(); 
+       ultimaLectura = ahora;
+    }
+
+    // 2. Grabar Datos (cada 15ms para no llenar la RAM muy rápido)
+    if (grabar && (ahora - ultimoLog >= 15)) {
+       registrarDato();
+       ultimoLog = ahora;
+    }
   }
+  delay(100); 
+  leerPosicionContinuaEncoder(); // Lectura final
+  if (grabar) registrarDato(); // Dato final
+}
+
+void moverConCompensacion(long posicionLogicaObjetivo, bool grabar) {
+    long backlash_steps = round(BACKLASH_COMPENSATION_GRADOS * PASOS_MOTOR_POR_GRADO_SALIDA);
+    int currentDirection = 0;
+
+    if (posicionLogicaObjetivo > motorPasoAPaso.currentPosition()) currentDirection = 1;
+    else if (posicionLogicaObjetivo < motorPasoAPaso.currentPosition()) currentDirection = -1;
+
+    // Compensación de Backlash
+    if (currentDirection != 0 && lastMoveDirection != 0 && currentDirection != lastMoveDirection) {
+      long posicionCompensada = posicionLogicaObjetivo + (currentDirection * backlash_steps);
+      // Movemos un poco más allá (sin grabar datos de este ajuste mecánico)
+      correrStepperHastaPosicion(posicionCompensada, false); 
+      delay(50);
+    }
+
+    // Movimiento real (aquí sí grabamos si se pide)
+    correrStepperHastaPosicion(posicionLogicaObjetivo, grabar);
+    
+    if (currentDirection != 0) lastMoveDirection = currentDirection;
+}
+
+// Envía todos los datos acumulados a MATLAB
+void enviarDatos() {
+  Serial1.println("---INICIO---");
+  for(int i=0; i<indice_log; i++) {
+    Serial1.print(log_tiempo[i]);
+    Serial1.print(",");
+    Serial1.println(log_angulos[i], 2);
+  }
+  Serial1.println("---FIN---");
+  indice_log = 0; // Resetear buffer
 }
 
 // ==========================================================
@@ -81,72 +142,91 @@ void moverA_PasosAbsolutos(long pasos_objetivo) {
 void setup() {
   Serial1.begin(115200);
   Wire.begin();
-  
+  Wire.setClock(400000); 
+  delay(100); 
+
   pinMode(pinPaso, OUTPUT);
   pinMode(pinDireccion, OUTPUT);
   pinMode(pinHabilitar, OUTPUT);
-  
-  digitalWrite(pinHabilitar, HIGH);
+  digitalWrite(pinHabilitar, HIGH); 
 
   encoder.begin();
+  encoder.setDirection(AS5600_CLOCK_WISE);
+  lecturaEncoderAnterior = leerPasosCrudosEncoder(); // Inicializar
+
+  // Chequeo rápido
   if (!encoder.isConnected()) {
-    Serial1.println("ERROR: Encoder no detectado!");
-    while (1);
+     Serial1.println("ERROR: Encoder no conectado");
+     while(1);
   }
-  
-  Serial1.println("--- MODO CALIBRACION MANUAL ---");
-  Serial1.println("Alinee manualmente y envie 'h' para establecer el Home.");
+  Serial1.println("READY"); // Señal para MATLAB
 }
 
 // ==========================================================
-// --- LOOP PRINCIPAL ---
+// --- LOOP PRINCIPAL (PROCESADOR DE COMANDOS) ---
 // ==========================================================
 void loop() {
-  // --- FASE 1: ESPERANDO CALIBRACIÓN DE HOME ---
-  if (!homingCompletado) {
-    if (Serial1.available() > 0) {
-      char comando = Serial1.read();
-      if (comando == 'h' || comando == 'H') {
-        Serial1.println("\nComando 'h' recibido. Estableciendo Home...");
-        
-        motorPasoAPaso.setCurrentPosition(0); // Definimos la posición actual como CERO
-        digitalWrite(pinHabilitar, LOW);
-        
-        Serial1.println("--- MODO OPERACION NORMAL ---");
-        motorPasoAPaso.setMaxSpeed(VELOCIDAD_MAXIMA);
-        motorPasoAPaso.setAcceleration(ACELERACION);
-        homingCompletado = true;
-      }
-    }
-    return;
+  // Mantener el encoder actualizado siempre
+  static unsigned long lastKeepAlive = 0;
+  if(millis() - lastKeepAlive > 10) {
+    leerPosicionContinuaEncoder();
+    lastKeepAlive = millis();
   }
 
-  // --- FASE 2: PROCESAMIENTO DE COMANDOS ---
   if (Serial1.available() > 0) {
-    String comando_completo = Serial1.readStringUntil('\n');
-    comando_completo.trim();
+    char comando = Serial1.read();
 
-    if (comando_completo.startsWith("M")) {
-      float angulo_obj_absoluto = comando_completo.substring(1).toFloat();
-      Serial1.print("OK;Moviendo a angulo absoluto: "); Serial1.println(angulo_obj_absoluto);
-      
-      // Convertimos el ángulo deseado a una posición absoluta en pasos
-      long pasos_objetivo = round(angulo_obj_absoluto * PASOS_POR_GRADO_SALIDA);
-      
-      moverA_PasosAbsolutos(pasos_objetivo);
-      Serial1.println("OK;Movimiento completado.");
+    // --- COMANDOS MANUALES / HOMING ---
+    if (comando == 'j') { // Izquierda
+       digitalWrite(pinHabilitar, LOW);
+       motorPasoAPaso.setMaxSpeed(VELOCIDAD_MAXIMA/2);
+       motorPasoAPaso.move(-2000);
+       while(motorPasoAPaso.distanceToGo() != 0) {
+         motorPasoAPaso.run();
+         leerPosicionContinuaEncoder();
+       }
     }
-    else if (comando_completo.equalsIgnoreCase("START")) {
-      iniciarRegistro();
+    else if (comando == 'k') { // Derecha
+       digitalWrite(pinHabilitar, LOW);
+       motorPasoAPaso.setMaxSpeed(VELOCIDAD_MAXIMA/2);
+       motorPasoAPaso.move(2000);
+       while(motorPasoAPaso.distanceToGo() != 0) {
+         motorPasoAPaso.run();
+         leerPosicionContinuaEncoder();
+       }
     }
-    else if (comando_completo.equalsIgnoreCase("GETDATA")) {
-      finalizarYEnviarRegistro();
+    else if (comando == 'h') { // SET HOME
+       motorPasoAPaso.stop();
+       encoderOffset = leerPosicionContinuaEncoder();
+       motorPasoAPaso.setCurrentPosition(0);
+       motorPasoAPaso.setMaxSpeed(VELOCIDAD_MAXIMA);
+       motorPasoAPaso.setAcceleration(ACELERACION);
+       homingCompletado = true;
+       Serial1.println("HOME_OK");
     }
-    else if (comando_completo.equalsIgnoreCase("HOME")) {
-        Serial1.println("OK;Volviendo a posicion Home (0)...");
-        // La orden es simple: ve a la posición absoluta CERO.
-        moverA_PasosAbsolutos(0);
-        Serial1.println("OK;En posicion Home.");
+    
+    // --- COMANDO DE MOVIMIENTO AUTOMATICO ---
+    // Formato: "m90.5" (mueve a 90.5 grados)
+    else if (comando == 'm') {
+       if(!homingCompletado) {
+         Serial1.println("ERROR: Homing requerido");
+         return;
+       }
+       
+       float anguloDeseado = Serial1.parseFloat(); // Lee el número que sigue a la 'm'
+       
+       Serial1.print("MOVIENDO:"); Serial1.println(anguloDeseado);
+       
+       // 1. Preparar grabación
+       indice_log = 0;
+       tiempo_inicio_movimiento = millis();
+       
+       // 2. Calcular pasos y mover
+       long pasosObjetivo = round(anguloDeseado * PASOS_MOTOR_POR_GRADO_SALIDA);
+       moverConCompensacion(pasosObjetivo, true); // true = grabar datos
+       
+       // 3. Enviar datos a MATLAB
+       enviarDatos();
     }
   }
 }
