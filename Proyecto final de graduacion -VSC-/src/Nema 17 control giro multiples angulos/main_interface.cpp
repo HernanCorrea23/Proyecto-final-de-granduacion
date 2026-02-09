@@ -81,8 +81,8 @@ void reportarPosicion(bool usarEncoderReal) {
           motorPasoAPaso.currentPosition() / PASOS_MOTOR_POR_GRADO_SALIDA;
     }
 
-    Serial1.print("POS:");
-    Serial1.println(anguloReportado, 2);
+    Serial2.print("POS:");
+    Serial2.println(anguloReportado, 2);
     lastStatusTime = millis();
   }
 }
@@ -136,7 +136,7 @@ void procesarComando(String comando) {
       motorPasoAPaso.setAcceleration(ACELERACION / 4);
       motorPasoAPaso.moveTo(-2000000000);
       homingDirection = -1;
-      Serial1.println("STATUS:JOGGING_LEFT");
+      Serial2.println("STATUS:JOGGING_LEFT");
     }
   } else if (comando == "JOG_R") {
     // Jog Right
@@ -146,14 +146,14 @@ void procesarComando(String comando) {
       motorPasoAPaso.setAcceleration(ACELERACION / 4);
       motorPasoAPaso.moveTo(2000000000);
       homingDirection = 1;
-      Serial1.println("STATUS:JOGGING_RIGHT");
+      Serial2.println("STATUS:JOGGING_RIGHT");
     }
   } else if (comando == "STOP_JOG") {
     if (homingDirection != 0) {
       homingDirection = 0;
       motorPasoAPaso.stop();
       motorPasoAPaso.runToPosition();
-      Serial1.println("STATUS:STOPPED");
+      Serial2.println("STATUS:STOPPED");
     }
   } else if (comando == "SET_HOME") {
     homingDirection = 0;
@@ -172,15 +172,15 @@ void procesarComando(String comando) {
     motorPasoAPaso.setAcceleration(ACELERACION);
 
     homingCompletado = true;
-    Serial1.println("STATUS:HOME_SET");
+    Serial2.println("STATUS:HOME_SET");
   }
 
   // -- COMANDOS DE CONTROL --
   else if (comando.startsWith("GOTO:")) {
     if (homingCompletado) {
       float anguloObjetivo = comando.substring(5).toFloat();
-      Serial1.print("STATUS:MOVING_TO:");
-      Serial1.println(anguloObjetivo);
+      Serial2.print("STATUS:MOVING_TO:");
+      Serial2.println(anguloObjetivo);
 
       long pasosRelativosMotor =
           round(anguloObjetivo * PASOS_MOTOR_POR_GRADO_SALIDA);
@@ -192,17 +192,17 @@ void procesarComando(String comando) {
       // Al terminar el movimiento, forzamos un reporte ESTIMADO para mantener
       // la gráfica estable (usuario prefiere target)
       reportarPosicion(false);
-      Serial1.println("STATUS:MOVE_COMPLETE");
+      Serial2.println("STATUS:MOVE_COMPLETE");
     } else {
-      Serial1.println("ERROR:HOME_NOT_SET");
+      Serial2.println("ERROR:HOME_NOT_SET");
     }
   } else if (comando == "PING") {
-    Serial1.println("PONG");
+    Serial2.println("PONG");
   }
 }
 
 void setup() {
-  Serial1.begin(115200); // Usamos Serial1 como en el original
+  Serial2.begin(115200); // Usamos Serial2 como en el original
   inputString.reserve(200);
 
   Wire.begin();
@@ -218,7 +218,7 @@ void setup() {
 
   // Verificación simple de conexión
   if (!encoder.isConnected()) {
-    Serial1.println("ERROR:ENCODER_NOT_CONNECTED");
+    Serial2.println("ERROR:ENCODER_NOT_CONNECTED");
     // Intentar una vez mas
     delay(500);
   }
@@ -233,8 +233,8 @@ void loop() {
   }
 
   // 2. Lectura Serial no bloqueante
-  while (Serial1.available()) {
-    char inChar = (char)Serial1.read();
+  while (Serial2.available()) {
+    char inChar = (char)Serial2.read();
     if (inChar == '\n') {
       stringComplete = true;
     } else {
