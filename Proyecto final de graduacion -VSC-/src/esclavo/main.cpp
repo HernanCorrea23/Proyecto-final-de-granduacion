@@ -9,7 +9,7 @@
 #define PIN_DIR  PA6
 #define PIN_EN   PA7
 // --- PIN SEGURO PARA SERVO ---
-#define PIN_SERVO PB0 
+#define PIN_SERVO PA8
 // Mecánica
 #define MICROSTEPS 32
 #define GEAR_RATIO 39.0
@@ -17,14 +17,22 @@
 const float STEPS_PER_DEGREE = (MOTOR_STEPS_PER_REV * MICROSTEPS * GEAR_RATIO) / 360.0;
 Servo miServo;
 const int anguloArriba = 90;  
-const int anguloAbajo = 130; 
+const int anguloAbajo = 130;
 int anguloServoActual = 90;
 void moverServo(int angulo) {
   if (angulo < 0) angulo = 0;
   if (angulo > 180) angulo = 180;
+ 
+  // Attach antes de mover para asegurar control
+  miServo.attach(PIN_SERVO, 500, 2500);
   miServo.write(angulo);
+  // Damos tiempo para que el servo llegue a la posición física
+  // Un servo típico tarda ~0.1-0.2s en moverse 60 grados.
+  delay(250);
+  // Detach para evitar 'jitter' o oscilaciones por ruido eléctrico en reposo
+  miServo.detach();
+ 
   anguloServoActual = angulo;
-  delay(20); 
 }
 void setup() {
   pinMode(PIN_DE_RE, OUTPUT);
@@ -33,17 +41,16 @@ void setup() {
   pinMode(PIN_EN, OUTPUT);
   pinMode(PC13, OUTPUT);
   digitalWrite(PIN_DE_RE, LOW);
-  digitalWrite(PIN_EN, LOW); 
+  digitalWrite(PIN_EN, LOW);
   digitalWrite(PC13, HIGH);
-  
+ 
   Serial1.begin(BAUD_RATE);
   // Aseguramos pines I2C para evitar bloqueos
   Wire.setSDA(PB7);
   Wire.setSCL(PB6);
   Wire.begin();
-  
-  // Attach en el nuevo pin seguro PB0
-  miServo.attach(PIN_SERVO, 500, 2500); 
+ 
+  // Inicializamos posición servo (la función se encarga del attach/detach)
   moverServo(anguloArriba);
 }
 void doSteps(long steps, bool dir) {
@@ -72,16 +79,16 @@ void loop() {
     if (cmd == '\n' || cmd == '\r') return;
     if (cmd == 'W') {
       doSteps(2 * STEPS_PER_DEGREE, true);
-    } 
+    }
     else if (cmd == 'S') {
       doSteps(2 * STEPS_PER_DEGREE, false);
     }
-    else if (cmd == 'P') { 
+    else if (cmd == 'P') {
       moverServo(anguloArriba);
       sendResponse("SERVO_UP_OK"); // ESTO DEBE APARECER EN EL MONITOR PC
-      digitalWrite(PC13, LOW); delay(50); digitalWrite(PC13, HIGH); 
+      digitalWrite(PC13, LOW); delay(50); digitalWrite(PC13, HIGH);
     }
-    else if (cmd == 'L') { 
+    else if (cmd == 'L') {
       moverServo(anguloAbajo);
       sendResponse("SERVO_DOWN_OK"); // ESTO TAMBIÉN
       digitalWrite(PC13, LOW); delay(50); digitalWrite(PC13, HIGH);
@@ -94,7 +101,5 @@ void loop() {
       moverServo(anguloServoActual - 5);
       sendResponse("SERVO_VAL:" + String(anguloServoActual));
     }
-    
-    while(Serial1.available()) Serial1.read();
   }
 }

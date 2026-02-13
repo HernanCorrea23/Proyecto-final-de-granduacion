@@ -118,14 +118,14 @@ long leerPosicionContinuaEncoder() {
 // termine.
 void correrStepperHastaPosicion(long posicionObjetivoLogico) {
   motorPasoAPaso.moveTo(posicionObjetivoLogico);
-  Serial1.print("Moviendo stepper a posicion logica: ");
-  Serial1.println(posicionObjetivoLogico);
+  Serial2.print("Moviendo stepper a posicion logica: ");
+  Serial2.println(posicionObjetivoLogico);
 
   while (motorPasoAPaso.distanceToGo() != 0) {
     motorPasoAPaso.run();
   }
-  Serial1.print("Movimiento stepper completado. Posicion logica final: ");
-  Serial1.println(motorPasoAPaso.currentPosition());
+  Serial2.print("Movimiento stepper completado. Posicion logica final: ");
+  Serial2.println(motorPasoAPaso.currentPosition());
   delay(200);
 }
 
@@ -148,14 +148,14 @@ void moverConCompensacion(long posicionLogicaObjetivo) {
   // movimiento
   if (currentDirection != 0 && lastMoveDirection != 0 &&
       currentDirection != lastMoveDirection) {
-    Serial1.print("Compensando backlash. Direccion: ");
-    Serial1.println(currentDirection == 1 ? "NEG -> POS" : "POS -> NEG");
+    Serial2.print("Compensando backlash. Direccion: ");
+    Serial2.println(currentDirection == 1 ? "NEG -> POS" : "POS -> NEG");
     // Mover un poco más allá en la dirección del movimiento para eliminar la
     // holgura
     long posicionCompensada =
         posicionLogicaObjetivo + (currentDirection * backlash_steps);
-    Serial1.print("   Moviendo a posicion sobrepasada: ");
-    Serial1.println(posicionCompensada);
+    Serial2.print("   Moviendo a posicion sobrepasada: ");
+    Serial2.println(posicionCompensada);
     correrStepperHastaPosicion(posicionCompensada); // Movimiento de sobrepaso
     delay(100); // Pequeña pausa para asentar la mecánica
   }
@@ -172,27 +172,27 @@ void moverConCompensacion(long posicionLogicaObjetivo) {
 
 // Imprime el menú de opciones para el usuario.
 void imprimirIndicacion() {
-  Serial1.println("------------------------------------");
-  Serial1.println("d: +90 | i: -90 | e: +45 | q: -45");
+  Serial2.println("------------------------------------");
+  Serial2.println("d: +90 | i: -90 | e: +45 | q: -45");
 }
 
 // Inicia el proceso de registro de datos para un nuevo ensayo.
 void iniciarRegistro() {
   puntos_log_actuales = 0;
   registrando_datos = true;
-  Serial1.println("OK;Registro iniciado.");
+  Serial2.println("OK;Registro iniciado.");
 }
 
 // Detiene y envía los datos registrados a MATLAB.
 void finalizarYEnviarRegistro() {
   registrando_datos = false;
-  Serial1.println("--- INICIO_DATOS ---");
+  Serial2.println("--- INICIO_DATOS ---");
   for (int i = 0; i < puntos_log_actuales; i++) {
-    Serial1.print(log_tiempo[i]);
-    Serial1.print(",");
-    Serial1.println(log_angulos[i], 4); // Enviar con 4 decimales para precisión
+    Serial2.print(log_tiempo[i]);
+    Serial2.print(",");
+    Serial2.println(log_angulos[i], 4); // Enviar con 4 decimales para precisión
   }
-  Serial1.println("--- FIN_DATOS ---");
+  Serial2.println("--- FIN_DATOS ---");
   puntos_log_actuales = 0; // Limpiar para el próximo registro
 }
 
@@ -225,20 +225,20 @@ void moverYRegistrar(float anguloObjetivo) {
 // ==========================================================
 
 void setup() {
-  Serial1.begin(115200);
-  while (!Serial1) {
+  Serial2.begin(115200);
+  while (!Serial2) {
     ; // Esperar a que el puerto serie se conecte
   }
-  Serial1.println(
+  Serial2.println(
       "\n--- Inicio de la secuencia de Setup (v3 - Home Virtual Cero) ---");
 
   // 1. Inicializar periféricos principales primero.
-  Serial1.println("Inicializando bus I2C (Wire.begin())...");
+  Serial2.println("Inicializando bus I2C (Wire.begin())...");
   Wire.begin();
   delay(100); // Pausa para que el bus I2C se estabilice.
 
   // 2. Configurar pines de GPIO para el motor.
-  Serial1.println("Configurando pines del motor...");
+  Serial2.println("Configurando pines del motor...");
   pinMode(pinPaso, OUTPUT);
   pinMode(pinDireccion, OUTPUT);
   pinMode(pinHabilitar, OUTPUT);
@@ -247,49 +247,49 @@ void setup() {
   // 3. Configurar el encoder.
   encoder.begin();
   encoder.setDirection(AS5600_CLOCK_WISE);
-  Serial1.println("Librería de encoder configurada.");
+  Serial2.println("Librería de encoder configurada.");
 
   // 4. Bucle de reintentos para la conexión (sin el Wire.end() previo).
   int maxRetries = 10;
   bool encoderConnected = false;
-  Serial1.println("Iniciando intentos de conexión con el encoder...");
+  Serial2.println("Iniciando intentos de conexión con el encoder...");
 
   for (int i = 0; i < maxRetries; i++) {
     // La llamada a isConnected() es la que realmente prueba la comunicación
     // I2C.
     if (encoder.isConnected()) {
       encoderConnected = true;
-      Serial1.print("Intento [");
-      Serial1.print(i + 1);
-      Serial1.print("]: ");
-      Serial1.println("¡Conexión exitosa!");
+      Serial2.print("Intento [");
+      Serial2.print(i + 1);
+      Serial2.print("]: ");
+      Serial2.println("¡Conexión exitosa!");
       break;
     } else {
-      Serial1.print("Intento [");
-      Serial1.print(i + 1);
-      Serial1.print("]: ");
-      Serial1.println("Fallo.");
+      Serial2.print("Intento [");
+      Serial2.print(i + 1);
+      Serial2.print("]: ");
+      Serial2.println("Fallo.");
       delay(500); // Esperar antes de reintentar.
     }
   }
 
   // 5. Verificación final.
   if (!encoderConnected) {
-    Serial1.println("*****************************************************");
-    Serial1.println(
+    Serial2.println("*****************************************************");
+    Serial2.println(
         "Error Crítico: No se pudo conectar con el encoder AS5600.");
-    Serial1.println("El sistema se detendrá.");
-    Serial1.println("*****************************************************");
+    Serial2.println("El sistema se detendrá.");
+    Serial2.println("*****************************************************");
     while (1) {
     }
   }
 
-  Serial1.println("Encoder detectado y listo.");
-  Serial1.println("--- MODO CALIBRACION ---");
-  Serial1.println("Use 'j' (izquierda) y 'k' (derecha) para mover el motor.");
-  Serial1.println(
+  Serial2.println("Encoder detectado y listo.");
+  Serial2.println("--- MODO CALIBRACION ---");
+  Serial2.println("Use 'j' (izquierda) y 'k' (derecha) para mover el motor.");
+  Serial2.println(
       "Presione 'h' para detener el movimiento y establecer el Home.");
-  Serial1.println("------------------------------------");
+  Serial2.println("------------------------------------");
 }
 
 // ==========================================================
@@ -305,13 +305,13 @@ void loop() {
     }
 
     // --- Manejo de comandos seriales para el homing ---
-    if (Serial1.available() > 0) {
-      char comando = tolower(Serial1.read());
+    if (Serial2.available() > 0) {
+      char comando = tolower(Serial2.read());
 
       switch (comando) {
       case 'j': // Mover a la izquierda
         if (homingDirection != -1) {
-          Serial1.println(
+          Serial2.println(
               "Homing: Moviendo a la izquierda. Presione 'h' para fijar home.");
           digitalWrite(pinHabilitar, LOW); // Habilitar motor
           motorPasoAPaso.setMaxSpeed(VELOCIDAD_MAXIMA /
@@ -324,7 +324,7 @@ void loop() {
 
       case 'k': // Mover a la derecha
         if (homingDirection != 1) {
-          Serial1.println(
+          Serial2.println(
               "Homing: Moviendo a la derecha. Presione 'h' para fijar home.");
           digitalWrite(pinHabilitar, LOW); // Habilitar motor
           motorPasoAPaso.setMaxSpeed(VELOCIDAD_MAXIMA /
@@ -336,12 +336,12 @@ void loop() {
         break;
 
       case 'h': // Detener y establecer Home
-        Serial1.println("\nComando 'h' recibido. Deteniendo motor...");
+        Serial2.println("\nComando 'h' recibido. Deteniendo motor...");
         homingDirection = 0;
         motorPasoAPaso.stop(); // Detiene el motor usando la deceleración
         motorPasoAPaso
             .runToPosition(); // Espera a que el motor se detenga completamente
-        Serial1.println(
+        Serial2.println(
             "Motor detenido. Estableciendo Home Virtual en CERO...");
 
         // --- Lógica para establecer el Home Virtual ---
@@ -354,14 +354,14 @@ void loop() {
             0); // ¡CLAVE! Se establece la posición lógica a CERO.
         digitalWrite(pinHabilitar,
                      LOW); // Asegurarse que el motor sigue habilitado
-        Serial1.print("Home establecido. Posicion actual: ");
-        Serial1.print(leerAnguloEncoderEnGrados(), 2);
-        Serial1.println(" GRADOS");
-        Serial1.print("Offset del encoder (pasos crudos): ");
-        Serial1.println(encoderOffset);
-        Serial1.print("Posicion Logica del Stepper: ");
-        Serial1.println(motorPasoAPaso.currentPosition());
-        Serial1.println("--- MODO OPERACION NORMAL ---");
+        Serial2.print("Home establecido. Posicion actual: ");
+        Serial2.print(leerAnguloEncoderEnGrados(), 2);
+        Serial2.println(" GRADOS");
+        Serial2.print("Offset del encoder (pasos crudos): ");
+        Serial2.println(encoderOffset);
+        Serial2.print("Posicion Logica del Stepper: ");
+        Serial2.println(motorPasoAPaso.currentPosition());
+        Serial2.println("--- MODO OPERACION NORMAL ---");
 
         // Restaurar velocidad y aceleración para la operación normal
         motorPasoAPaso.setMaxSpeed(VELOCIDAD_MAXIMA);
@@ -377,8 +377,8 @@ void loop() {
   // --- FASE 2: OPERACIÓN NORMAL (después del homing) ---
 
   // Leer comandos solo si no hay un movimiento en curso
-  if (Serial1.available() > 0) {
-    char comando = tolower(Serial1.read());
+  if (Serial2.available() > 0) {
+    char comando = tolower(Serial2.read());
     bool comandoValido = false;
 
     switch (comando) {
@@ -401,11 +401,11 @@ void loop() {
     }
 
     if (comandoValido) {
-      Serial1.print("\nComando '");
-      Serial1.print(comando);
-      Serial1.print("': Moviendo ");
-      Serial1.print(anguloObjetivoRelativoActual);
-      Serial1.println(" grados en la salida.");
+      Serial2.print("\nComando '");
+      Serial2.print(comando);
+      Serial2.print("': Moviendo ");
+      Serial2.print(anguloObjetivoRelativoActual);
+      Serial2.println(" grados en la salida.");
 
       // --- MOVIMIENTO DE IDA ---
       long pasosRelativosMotor =
@@ -414,33 +414,33 @@ void loop() {
           motorPasoAPaso.currentPosition() + pasosRelativosMotor;
       moverConCompensacion(posicionLogicaObjetivo);
 
-      Serial1.println("   Llego al objetivo.");
+      Serial2.println("   Llego al objetivo.");
 
       // --- VERIFICACIÓN CON ENCODER ---
       float anguloRealFinal = leerAnguloEncoderEnGrados();
       float errorGradosSalida = anguloObjetivoRelativoActual - anguloRealFinal;
-      Serial1.print("   Angulo objetivo: ");
-      Serial1.print(anguloObjetivoRelativoActual, 2);
-      Serial1.print(" | Angulo real medido: ");
-      Serial1.println(anguloRealFinal, 2);
-      Serial1.print("   Error angular (grados salida): ");
-      Serial1.println(errorGradosSalida, 2);
+      Serial2.print("   Angulo objetivo: ");
+      Serial2.print(anguloObjetivoRelativoActual, 2);
+      Serial2.print(" | Angulo real medido: ");
+      Serial2.println(anguloRealFinal, 2);
+      Serial2.print("   Error angular (grados salida): ");
+      Serial2.println(errorGradosSalida, 2);
       if (abs(errorGradosSalida) > TOLERANCIA_ANGULO)
-        Serial1.println("   ADVERTENCIA: Error angular grande!");
+        Serial2.println("   ADVERTENCIA: Error angular grande!");
 
       // --- ESPERAR Y REGRESAR ---
-      Serial1.println("   Esperando 1 segundo...");
+      Serial2.println("   Esperando 1 segundo...");
       delay(1000);
-      Serial1.println("   Regresando a posicion Home (0)...");
+      Serial2.println("   Regresando a posicion Home (0)...");
       moverConCompensacion(0); // Regresa a la posición lógica CERO
 
       // --- FIN DEL CICLO: Mostrar estado y esperar nuevo comando ---
       float anguloFinalTrasRegreso = leerAnguloEncoderEnGrados();
-      Serial1.print("   Posicion final tras regreso: ");
-      Serial1.print(anguloFinalTrasRegreso, 2);
-      Serial1.println(" GRADOS");
-      Serial1.print("   Posicion logica final: ");
-      Serial1.println(motorPasoAPaso.currentPosition());
+      Serial2.print("   Posicion final tras regreso: ");
+      Serial2.print(anguloFinalTrasRegreso, 2);
+      Serial2.println(" GRADOS");
+      Serial2.print("   Posicion logica final: ");
+      Serial2.println(motorPasoAPaso.currentPosition());
       imprimirIndicacion();
     }
   }
