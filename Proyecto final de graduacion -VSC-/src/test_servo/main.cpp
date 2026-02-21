@@ -16,6 +16,8 @@ int anguloArriba = 90; // Lápiz levantado (no toca el papel)
 int anguloAbajo = 130; // Lápiz abajo (toca el papel)
 
 int anguloActual = anguloArriba;
+unsigned long tiempoAnterior = 0;
+const long intervalo = 1000;
 
 void moverServo(int angulo) {
   // Limitamos el ángulo por seguridad (0 a 180 es el estándar)
@@ -27,19 +29,19 @@ void moverServo(int angulo) {
   miServo.write(angulo);
   anguloActual = angulo;
 
-  Serial1.print("Moviendo a: ");
-  Serial1.println(anguloActual);
+  Serial2.print("Moviendo a: ");
+  Serial2.println(anguloActual);
 }
 
 void setup() {
-  // Iniciamos Serial1 (PA9/PA10) para la comunicación con la PC
-  Serial1.begin(115200);
-  Serial1.println("\n--- Test de Servo HX5010 para Brazo Robotico ---");
-  Serial1.println("Controles:");
-  Serial1.println(" 'b' -> Bajar lapiz (Posicion de escritura)");
-  Serial1.println(" 's' -> Subir lapiz (Posicion de espera)");
-  Serial1.println(" '+' -> Aumentar angulo (+5 grados)");
-  Serial1.println(" '-' -> Disminuir angulo (-5 grados)");
+  // Iniciamos Serial2 (PA9/PA10) para la comunicación con la PC
+  Serial2.begin(115200);
+  Serial2.println("\n--- Test de Servo HX5010 para Brazo Robotico ---");
+  Serial2.println("Controles:");
+  Serial2.println(" 'b' -> Bajar lapiz (Posicion de escritura)");
+  Serial2.println(" 's' -> Subir lapiz (Posicion de espera)");
+  Serial2.println(" '+' -> Aumentar angulo (+5 grados)");
+  Serial2.println(" '-' -> Disminuir angulo (-5 grados)");
 
   // Inicializar el servo
   miServo.attach(pinServo);
@@ -49,20 +51,27 @@ void setup() {
 }
 
 void loop() {
-  if (Serial1.available() > 0) {
-    char comando = Serial1.read();
+  unsigned long tiempoActual = millis();
+  if (tiempoActual - tiempoAnterior >= intervalo) {
+    tiempoAnterior = tiempoActual;
+    Serial2.print("Angulo actual: ");
+    Serial2.println(anguloActual);
+  }
+
+  if (Serial2.available() > 0) {
+    char comando = Serial2.read();
 
     // Convertir a minúscula para facilitar el uso
     comando = tolower(comando);
 
     switch (comando) {
     case 'b': // Bajar lápiz
-      Serial1.println("Comando: BAJAR LAPIZ");
+      Serial2.println("Comando: BAJAR LAPIZ");
       moverServo(anguloAbajo);
       break;
 
     case 's': // Subir lápiz
-      Serial1.println("Comando: SUBIR LAPIZ");
+      Serial2.println("Comando: SUBIR LAPIZ");
       moverServo(anguloArriba);
       break;
 
@@ -80,8 +89,8 @@ void loop() {
       break;
 
     default:
-      Serial1.print("Comando no reconocido: ");
-      Serial1.println(comando);
+      Serial2.print("Comando no reconocido: ");
+      Serial2.println(comando);
       break;
     }
   }
