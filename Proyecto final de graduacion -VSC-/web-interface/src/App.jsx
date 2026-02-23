@@ -1,31 +1,46 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Activity, Power, Crosshair, Zap, RotateCw } from 'lucide-react';
+import { Activity, Power, Crosshair, Zap, RotateCw, Save, Play, Square, Circle, Plus, Trash2 } from 'lucide-react';
 import './App.css';
 
 function App() {
   const [port, setPort] = useState(null);
   const [connected, setConnected] = useState(false);
   const [status, setStatus] = useState("Desconectado");
-  const [angleInput, setAngleInput] = useState("0");
-  const [positionData, setPositionData] = useState([]);
   const [writer, setWriter] = useState(null);
 
-  const [isFrozen, setIsFrozen] = useState(false);
-  const isFrozenRef = useRef(false); // Ref para acceso dentro del loop serial
+  const [mode, setMode] = useState("libre"); // "libre" o "grabacion"
 
-  const startTimeRef = useRef(null); // Ref para el tiempo de inicio del movimiento
+  const [mPos, setMPos] = useState(0);
+  const [sPos, setSPos] = useState(0);
 
-  // Buffer for incoming serial data
-  const bufferRef = useRef("");
+  const [currentSequence, setCurrentSequence] = useState([]);
+  const [figureName, setFigureName] = useState("");
+  const [savedFigures, setSavedFigures] = useState(() => {
+    const saved = localStorage.getItem("arm_figures");
+    return saved ? JSON.parse(saved) : [];
+  });
+
   const readerRef = useRef(null);
+  const bufferRef = useRef("");
 
+  const executionState = useRef({
+    running: false,
+    mDone: false,
+    sDone: false,
+    waitServo: false,
+    resolve: null
+  });
+
+  // Track keyboard state
+  const keysPressed = useRef(new Set());
+  const jogActive = useRef(false);
+
+  // Connection
   const connect = async () => {
     if (!navigator.serial) {
       alert("Tu navegador no soporta Web Serial API. Usa Chrome o Edge.");
       return;
     }
-
     try {
       const p = await navigator.serial.requestPort();
       await p.open({ baudRate: 115200 });
@@ -34,16 +49,15 @@ function App() {
       setStatus("Conectado");
 
       const textEncoder = new TextEncoderStream();
-      const writableStreamClosed = textEncoder.readable.pipeTo(p.writable);
+      textEncoder.readable.pipeTo(p.writable);
       const w = textEncoder.writable.getWriter();
       setWriter(w);
 
       const textDecoder = new TextDecoderStream();
-      const readableStreamClosed = p.readable.pipeTo(textDecoder.writable);
+      p.readable.pipeTo(textDecoder.writable);
       const r = textDecoder.readable.getReader();
       readerRef.current = r;
 
-      // Start reading
       readLoop(r);
     } catch (err) {
       console.error(err);
@@ -66,7 +80,6 @@ function App() {
       console.error(error);
       setStatus("Error de lectura");
     } finally {
-      // Disconnected or closed
       setConnected(false);
     }
   };
@@ -79,36 +92,32 @@ function App() {
       const trimmed = line.trim();
       if (!trimmed) continue;
 
-      // console.log("RX:", trimmed); // Comentado para limpiar consola
+      if (trimmed.startsWith("M_POS:")) {
+        setMPos(parseInt(trimmed.substring(6)));
+      } else if (trimmed.includes("S_POS:")) {
+        const parts = trimmed.split("S_POS:");
+        setSPos(parseInt(parts[1]));
+      } else if (trimmed === "MDONE") {
+        executionState.current.mDone = true;
+        checkStepComplete();
+      } else if (trimmed.includes("SDONE")) {
+        executionState.current.sDone = true;
+        checkStepComplete();
+      } else if (trimmed.includes("SERVO_UP_OK") || trimmed.includes("SERVO_DOWN_OK")) {
+        executionState.current.waitServo = true;
+        checkStepComplete();
+      }
+    }
+  };
 
-      if (trimmed.startsWith("POS:")) {
-        // Si está congelado (usando REF para valor fresco), ignoramos nuevos datos
-        if (isFrozenRef.current) continue;
-
-        const val = parseFloat(trimmed.substring(4));
-        if (!isNaN(val)) {
-          // Calcular tiempo transcurrido
-          let timeLabel = "0.00";
-          if (startTimeRef.current) {
-            const diff = (Date.now() - startTimeRef.current) / 1000;
-            timeLabel = diff.toFixed(2);
-          }
-
-          setPositionData(prev => {
-            const newData = [...prev, { time: timeLabel, val }];
-            if (newData.length > 500) return newData.slice(-500);
-            return newData;
-          });
+  const checkStepComplete = () => {
+    if (executionState.current.running) {
+      if ((executionState.current.mDone && executionState.current.sDone) || executionState.current.waitServo) {
+        if (executionState.current.resolve) {
+          const res = executionState.current.resolve;
+          executionState.current.resolve = null;
+          res();
         }
-      } else if (trimmed.startsWith("STATUS:")) {
-        const s = trimmed.substring(7);
-        if (s === "JOGGING_LEFT") setStatus("Moviendo Izquierda...");
-        else if (s === "JOGGING_RIGHT") setStatus("Moviendo Derecha...");
-        else if (s === "STOPPED") setStatus("Detenido");
-        else if (s === "HOME_SET") setStatus("Home Establecido");
-        else if (s === "MOVING_TO") setStatus("Moviendo a objetivo...");
-        else if (s === "MOVE_COMPLETE") setStatus("Movimiento completado");
-        else setStatus(s);
       }
     }
   };
@@ -117,179 +126,260 @@ function App() {
     if (!writer) return;
     try {
       await writer.write(cmd + "\n");
-      console.log("TX:", cmd);
     } catch (e) {
       console.error("Error writing:", e);
     }
   };
 
-  const handleExecute = () => {
-    const angle = parseFloat(angleInput);
-    if (isNaN(angle)) {
-      alert("Por favor ingrese un número válido.");
+  // Keyboard listeners
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.repeat) return;
+      if (e.target.tagName === 'INPUT') return;
+      keysPressed.current.add(e.key.toLowerCase());
+    };
+    const handleKeyUp = (e) => {
+      keysPressed.current.delete(e.key.toLowerCase());
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, []);
+
+  // Control loop (Jogging + Polling)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!connected) return;
+
+      // Disable manual jumping/polling if executing a figure
+      if (executionState.current.running) return;
+
+      const keys = keysPressed.current;
+      let isJogging = false;
+
+      // Handle continuous movement
+      if (keys.has('a')) { sendCommand('a'); isJogging = true; }
+      else if (keys.has('d')) { sendCommand('d'); isJogging = true; }
+      else if (keys.has('w')) { sendCommand('w'); isJogging = true; }
+      else if (keys.has('s')) { sendCommand('s'); isJogging = true; }
+
+      // Handle discrete events (remove after trigger)
+      if (keys.has('p')) { sendCommand('p'); keys.delete('p'); }
+      if (keys.has('l')) { sendCommand('l'); keys.delete('l'); }
+      if (keys.has('+')) { sendCommand('+'); keys.delete('+'); }
+      if (keys.has('-')) { sendCommand('-'); keys.delete('-'); }
+
+      if (!isJogging && jogActive.current) {
+        sendCommand('x'); // Stop immediate
+        jogActive.current = false;
+      } else if (isJogging) {
+        jogActive.current = true;
+      }
+
+      if (!isJogging) {
+        window.pollTicks = (window.pollTicks || 0) + 1;
+        if (window.pollTicks % 5 === 0) { // Every ~500ms
+          sendCommand('c');
+        }
+      }
+
+    }, 100);
+
+    return () => clearInterval(interval);
+  }, [connected]);
+
+  // Save/Load effects
+  useEffect(() => {
+    localStorage.setItem("arm_figures", JSON.stringify(savedFigures));
+  }, [savedFigures]);
+
+  // Figure Execution
+  const executeSequence = async (sequence) => {
+    if (!connected || !writer) {
+      alert("No hay conexión con el brazo.");
       return;
     }
-    if (angle < -110 || angle > 110) {
-      alert("¡ALERTA DE RANGO!\n\nEl ángulo debe estar entre -110° y 110°.\nValor ingresado: " + angle);
+
+    setStatus("Ejecutando figura...");
+    executionState.current.running = true;
+
+    for (let i = 0; i < sequence.length; i++) {
+      const step = sequence[i];
+
+      executionState.current.mDone = false;
+      executionState.current.sDone = false;
+      executionState.current.waitServo = false;
+
+      setStatus(`Ejecutando punto ${i + 1}/${sequence.length}`);
+
+      if (step.type === "motor") {
+        sendCommand(`g${step.m}`);
+        sendCommand(`e${step.s}`);
+
+        await Promise.race([
+          new Promise(resolve => executionState.current.resolve = resolve),
+          new Promise(resolve => setTimeout(resolve, 15000))
+        ]);
+
+        await new Promise(r => setTimeout(r, 100)); // Small stabilization delay
+      } else if (step.type === "servo") {
+        sendCommand(step.val); // 'p' or 'l'
+        await Promise.race([
+          new Promise(resolve => executionState.current.resolve = resolve),
+          new Promise(resolve => setTimeout(resolve, 2000))
+        ]);
+      }
+    }
+
+    executionState.current.running = false;
+    setStatus("Figura completada.");
+  };
+
+  // UI Handlers
+  const addMotorPoint = () => {
+    setCurrentSequence([...currentSequence, { type: "motor", m: mPos, s: sPos }]);
+  };
+
+  const addServoPoint = (val, label) => {
+    setCurrentSequence([...currentSequence, { type: "servo", val, label }]);
+  };
+
+  const clearSequence = () => setCurrentSequence([]);
+
+  const saveFigure = () => {
+    if (!figureName.trim() || currentSequence.length === 0) {
+      alert("Ingrese un nombre y registre al menos un punto.");
       return;
     }
-
-    // Resetear para nuevo movimiento
-    setPositionData([]);
-    startTimeRef.current = Date.now();
-
-    // Descongelar
-    setIsFrozen(false);
-    isFrozenRef.current = false;
-
-    sendCommand("GOTO:" + angle);
+    setSavedFigures([...savedFigures, { id: Date.now(), name: figureName, points: currentSequence }]);
+    setFigureName("");
+    setCurrentSequence([]);
   };
 
-  const toggleFreeze = () => {
-    const newState = !isFrozen;
-    setIsFrozen(newState);
-    isFrozenRef.current = newState; // Actualizar REF para el loop
-  };
-
-  const handleChartClick = (data) => {
-    // Usamos la referencia para asegurar que leemos el valor actual sin depender del render
-    if (!isFrozenRef.current) return;
-
-    console.log("Chart Click Data:", data); // Para depuración en consola
-
-    let clickedValue = null;
-
-    // Caso A: Click desde un Dot específico (recharts suele enviar el payload directo)
-    if (data && data.payload && data.payload.val !== undefined) {
-      clickedValue = data.payload.val;
-    }
-    // Caso B: Click directo en el objeto de valor (algunos eventos de recharts)
-    else if (data && data.val !== undefined) {
-      clickedValue = data.val;
-    }
-    // Caso C: Click genérico en el chart (activePayload)
-    else if (data && data.activePayload && data.activePayload.length > 0) {
-      clickedValue = data.activePayload[0].payload.val;
-    }
-
-    if (clickedValue !== null) {
-      setAngleInput(clickedValue.toString());
-      setStatus("Seleccionado: " + clickedValue + "°"); // Feedback visual inmediato
-    }
+  const deleteFigure = (id) => {
+    setSavedFigures(savedFigures.filter(f => f.id !== id));
   };
 
   return (
-    <div className="container">
-      <div className="sidebar">
-        {/* Connection Panel */}
-        <div className="panel">
-          <h2><Power size={18} style={{ marginRight: 8, verticalAlign: 'text-bottom' }} /> Conexión</h2>
-          <div className="control-row">
-            <span>Puerto Serial:</span>
-            <button onClick={connect} disabled={connected}>
-              {connected ? "CONECTADO" : "SELECCIONAR"}
-            </button>
-          </div>
-          <div className="status-row">
-            <div className={`led ${connected ? 'on' : 'off'}`}></div>
-            <span>
-              {connected ? "Conectado al dispositivo" : "Desconectado"}
-              <br />
-              <small style={{ color: '#888' }}>{status}</small>
-            </span>
-          </div>
+    <div className="dashboard">
+      <header className="topbar">
+        <div className="logo">
+          <Activity className="text-neon" size={24} />
+          <span>RoboDraw 5000</span>
         </div>
-
-        {/* Homing Panel */}
-        <div className="panel">
-          <h2><Home size={18} style={{ marginRight: 8, verticalAlign: 'text-bottom' }} /> Homing</h2>
-          <div className="jog-controls">
-            <button className="jog-btn"
-              onMouseDown={() => sendCommand("JOG_L")}
-              onMouseUp={() => sendCommand("STOP_JOG")}
-              onMouseLeave={() => sendCommand("STOP_JOG")}
-            > &lt; Jog Izq </button>
-            <button className="jog-btn"
-              onMouseDown={() => sendCommand("JOG_R")}
-              onMouseUp={() => sendCommand("STOP_JOG")}
-              onMouseLeave={() => sendCommand("STOP_JOG")}
-            > Jog Der &gt; </button>
+        <div className="topbar-controls">
+          <div className={`status-badge ${connected ? 'status-on' : 'status-off'}`}>
+            <div className="led"></div>
+            {status}
           </div>
-          <button className="btn-orange" onClick={() => sendCommand("SET_HOME")}>ESTABLECER HOME</button>
-        </div>
-
-        {/* Control Panel */}
-        <div className="panel">
-          <h2><Crosshair size={18} style={{ marginRight: 8, verticalAlign: 'text-bottom' }} /> Control</h2>
-          <div className="control-row">
-            <label>Ángulo Objetivo</label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <input value={angleInput} onChange={e => setAngleInput(e.target.value)} type="number" step="0.1" />
-              <span>°</span>
-            </div>
-          </div>
-          <button className="btn-green" onClick={handleExecute}>
-            EJECUTAR <Zap size={16} style={{ marginLeft: 8, verticalAlign: 'middle' }} />
+          <button className="btn-homing" onClick={() => sendCommand('h')} disabled={executionState.current.running || !connected}>
+            <RotateCw size={18} /> Homing Automático
+          </button>
+          <button className="btn-connect" onClick={connect} disabled={connected}>
+            <Power size={18} /> {connected ? "Conectado" : "Conectar Serial"}
           </button>
         </div>
-      </div>
+      </header>
 
-      <div className="main-content">
-        <div className="chart-header">
-          <h2><Activity size={20} style={{ marginRight: 10, verticalAlign: 'text-bottom' }} /> Posición en Tiempo Real</h2>
-          <div style={{ display: 'flex', gap: 10 }}>
-            <button
-              onClick={toggleFreeze}
-              style={{ padding: '5px 15px', fontSize: '0.8em', background: isFrozen ? '#e67e22' : '#333' }}>
-              {isFrozen ? "REANUDAR GRÁFICA" : "CONGELAR GRÁFICA"}
-            </button>
-            <button
-              onClick={() => setPositionData([])}
-              style={{ padding: '5px 10px', fontSize: '0.8em', background: '#333' }}>
-              Limpiar
-            </button>
+      <main className="content">
+        <div className="panel modes-panel">
+          <div className="tabs">
+            <button className={`tab ${mode === 'libre' ? 'active' : ''}`} onClick={() => setMode('libre')}>Modo Libre</button>
+            <button className={`tab ${mode === 'grabacion' ? 'active' : ''}`} onClick={() => setMode('grabacion')}>Modo Grabación</button>
+          </div>
+
+          <div className="tab-content">
+            {mode === 'libre' ? (
+              <div className="mode-libre">
+                <h3><Crosshair size={20} /> Control de Teclado</h3>
+                <p>Usa el teclado para mover el brazo robótico libremente. El movimiento es continuo mientras mantengas la tecla presionada.</p>
+                <div className="key-grid">
+                  <div className="key-item"><kbd>W</kbd> / <kbd>S</kbd><span>Motor Esclavo (Arriba/Abajo)</span></div>
+                  <div className="key-item"><kbd>A</kbd> / <kbd>D</kbd><span>Motor Maestro (Izq/Der)</span></div>
+                  <div className="key-item"><kbd>P</kbd> / <kbd>L</kbd><span>Servo (Elevar/Bajar Pen)</span></div>
+                  <div className="key-item"><kbd>+</kbd> / <kbd>-</kbd><span>Servo Ajuste Fino</span></div>
+                </div>
+                <div className="live-pos">
+                  <div className="pos-box">Maestro: <span>{mPos}</span> pasos</div>
+                  <div className="pos-box">Esclavo: <span>{sPos}</span> pasos</div>
+                </div>
+              </div>
+            ) : (
+              <div className="mode-grabacion">
+                <h3><Save size={20} /> Crear Figura</h3>
+                <div className="live-pos">
+                  <div className="pos-box">Maestro: <span>{mPos}</span></div>
+                  <div className="pos-box">Esclavo: <span>{sPos}</span></div>
+                </div>
+
+                <div className="record-actions">
+                  <button className="btn-record-motor" onClick={addMotorPoint}>
+                    <Plus size={16} /> Registrar Motores (A,D,W,S)
+                  </button>
+                  <div className="servo-actions">
+                    <button className="btn-record-servo" onClick={() => addServoPoint('p', 'Servo Arriba (P)')}>Registrar P (Arriba)</button>
+                    <button className="btn-record-servo" onClick={() => addServoPoint('l', 'Servo Abajo (L)')}>Registrar L (Abajo)</button>
+                  </div>
+                </div>
+
+                <div className="sequence-preview">
+                  <h4>Puntos Registrados ({currentSequence.length})</h4>
+                  <ul className="sequence-list">
+                    {currentSequence.map((pt, i) => (
+                      <li key={i}>
+                        <span className="step-num">{i + 1}</span>
+                        {pt.type === 'motor' ? `Ir a M:${pt.m}, S:${pt.s}` : `Acción: ${pt.label}`}
+                      </li>
+                    ))}
+                    {currentSequence.length === 0 && <li className="empty-msg">No hay puntos aún. Mueve el eje libremente y registra posiciones.</li>}
+                  </ul>
+                  {currentSequence.length > 0 && <button className="btn-text" onClick={clearSequence}>Limpiar</button>}
+                </div>
+
+                <div className="save-form">
+                  <input type="text" placeholder="Nombre de la figura (ej. Cuadrado)" value={figureName} onChange={e => setFigureName(e.target.value)} />
+                  <button className="btn-save" onClick={saveFigure}><Save size={16} /> Guardar</button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
-        <div className="chart-container">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart
-              data={positionData}
-              onClick={handleChartClick}
-              style={{ cursor: isFrozen ? 'pointer' : 'default' }}
-              margin={{ top: 5, right: 20, bottom: 5, left: 0 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-              <XAxis
-                dataKey="time"
-                stroke="#666"
-                fontSize={12}
-                label={{ value: 'Tiempo (s)', position: 'insideBottomRight', offset: -5, fill: '#666' }}
-              />
-              <YAxis stroke="#666" fontSize={12} />
-              <Tooltip
-                wrapperStyle={{ pointerEvents: 'none' }}
-                contentStyle={{ backgroundColor: '#222', borderColor: '#444', color: '#eee' }}
-                itemStyle={{ color: '#00b894' }}
-                formatter={(value) => [value + "°", "Ángulo"]}
-                labelFormatter={(label) => "Tiempo: " + label + "s"}
-              />
-              <Line
-                type="monotone"
-                dataKey="val"
-                stroke="#00b894"
-                strokeWidth={2}
-                dot={isFrozen}
-                activeDot={{ r: 8 }}
-                isAnimationActive={false}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-    </div>
-  )
-}
 
-function Home({ size, style }) { return <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={style}><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg> }
+        <div className="panel figures-panel">
+          <h3><Play size={20} /> Figuras Guardadas</h3>
+          {savedFigures.length === 0 ? (
+            <div className="empty-panel">
+              <Circle className="icon-op" size={48} />
+              <p>Aún no hay figuras guardadas. Crea una en el Modo Grabación.</p>
+            </div>
+          ) : (
+            <div className="figures-grid">
+              {savedFigures.map(fig => (
+                <div className="figure-card" key={fig.id}>
+                  <div className="fig-info">
+                    <Square size={24} className="text-neon" />
+                    <div>
+                      <h4>{fig.name}</h4>
+                      <small>{fig.points.length} puntos</small>
+                    </div>
+                  </div>
+                  <div className="fig-actions">
+                    <button className="btn-play" onClick={() => executeSequence(fig.points)} disabled={!connected || executionState.current.running}>
+                      <Play size={16} /> Ejecutar
+                    </button>
+                    <button className="btn-del" onClick={() => deleteFigure(fig.id)}><Trash2 size={16} /></button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </main>
+    </div>
+  );
+}
 
 export default App;

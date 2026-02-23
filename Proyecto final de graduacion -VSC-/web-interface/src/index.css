@@ -1,27 +1,33 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+
 :root {
-    font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
-    line-height: 1.5;
-    font-weight: 400;
+    --bg-color: #0b1115;
+    --panel-bg: rgba(18, 25, 33, 0.65);
+    --panel-border: rgba(100, 252, 241, 0.15);
+    --neon-cyan: #66FCF1;
+    --neon-orange: #FF5722;
+    --neon-green: #00E676;
+    --text-main: #E0E2E4;
+    --text-muted: #8D99AE;
+}
 
-    color-scheme: light dark;
-    color: rgba(255, 255, 255, 0.87);
-    background-color: #242424;
-
-    font-synthesis: none;
-    text-rendering: optimizeLegibility;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
 }
 
 body {
-    margin: 0;
-    display: block;
-    min-width: 320px;
-    min-height: 100vh;
-    width: 100%;
+    font-family: 'Outfit', sans-serif;
+    background-color: var(--bg-color);
+    background-image:
+        radial-gradient(circle at 15% 50%, rgba(102, 252, 241, 0.05) 0%, transparent 50%),
+        radial-gradient(circle at 85% 30%, rgba(255, 87, 34, 0.05) 0%, transparent 50%);
+    color: var(--text-main);
+    height: 100vh;
+    overflow: hidden;
 }
 
 #root {
-    width: 100%;
-    min-height: 100vh;
+    height: 100%;
 }

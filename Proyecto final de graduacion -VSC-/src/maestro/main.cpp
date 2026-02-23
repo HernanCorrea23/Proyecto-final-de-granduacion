@@ -28,7 +28,8 @@ const int MICROPASOS = 32;
 const float RELACION_REDUCTOR = 39.0;
 
 const float PASOS_POR_REV_MOTOR_EFECTIVO = PASOS_POR_REV_MOTOR * MICROPASOS;
-const float PASOS_POR_REV_SALIDA = PASOS_POR_REV_MOTOR_EFECTIVO * RELACION_REDUCTOR;
+const float PASOS_POR_REV_SALIDA =
+    PASOS_POR_REV_MOTOR_EFECTIVO * RELACION_REDUCTOR;
 
 // Velocidades para AccelStepper (Operación Normal)
 const float VELOCIDAD_MAXIMA = 800 * MICROPASOS;
@@ -37,9 +38,9 @@ const float ACELERACION = 300 * MICROPASOS;
 
 // --- PARAMETROS HOMING (Del Test) ---
 const int LIMITE_BLANCO = 200;
-const int LIMITE_NEGRO  = 600;
-const int VEL_CRUCERO_HOMING = 1500;    // Delay micros
-const int VEL_APROX_HOMING   = 2500;   // Delay micros
+const int LIMITE_NEGRO = 600;
+const int VEL_CRUCERO_HOMING = 1500; // Delay micros
+const int VEL_APROX_HOMING = 2500;   // Delay micros
 const long AMPLITUD_INICIAL = 1000;
 const long RANGO_OSCILACION_FINA = 400;
 
@@ -62,11 +63,19 @@ int velocidad_homing_actual = VEL_CRUCERO_HOMING;
 // Variables Control Joystick
 unsigned long lastInputTime = 0;
 const int INPUT_TIMEOUT = 150; // ms
-enum Action { ACCION_NADA, MAESTRO_DER, MAESTRO_IZQ, ESCLAVO_SUBIR, ESCLAVO_BAJAR };
+enum Action {
+  ACCION_NADA,
+  MAESTRO_DER,
+  MAESTRO_IZQ,
+  ESCLAVO_SUBIR,
+  ESCLAVO_BAJAR
+};
 Action currentAction = ACCION_NADA;
 bool slaveMoving = false; // Para enviar STOP al esclavo solo una vez
 unsigned long lastSlaveTxTime = 0;
 const int SLAVE_TX_INTERVAL = 50; // ms
+
+bool runToTarget = false;
 
 // --- Funciones RS485 ---
 void sendRS485(String cmd) {
@@ -80,7 +89,12 @@ void sendRS485(String cmd) {
 void setup() {
   // Comunicación
   Serial1.begin(BAUD_RS485);
+  Serial1.setTimeout(5);
   Serial2.begin(BAUD_PC);
+  Serial2.setTimeout(5);
+
+  pinMode(PIN_DE_RE, OUTPUT);
+  digitalWrite(PIN_DE_RE, LOW);
 
   pinMode(PC13, OUTPUT);
   digitalWrite(PC13, HIGH);
@@ -89,12 +103,14 @@ void setup() {
   pinMode(pinPaso, OUTPUT);
   pinMode(pinDireccion, OUTPUT);
   pinMode(pinHabilitar, OUTPUT);
-  digitalWrite(pinHabilitar, HIGH); // Inicia deshabilitado (se habilitará al empezar)
+  digitalWrite(pinHabilitar,
+               HIGH); // Inicia deshabilitado (se habilitará al empezar)
 
   // Sensor
   pinMode(PIN_SENSOR_ANALOG, INPUT_ANALOG);
 
-  // Encoder (se mantiene por si se usa en el futuro, aunque no es critico para este homing)
+  // Encoder (se mantiene por si se usa en el futuro, aunque no es critico para
+  // este homing)
   Wire.begin();
   encoderMaestro.begin();
   encoderMaestro.setDirection(AS5600_CLOCK_WISE);
@@ -114,8 +130,10 @@ void loopHoming() {
   if (estado_motor_homing != 0) {
     // A. Verificar Objetivo
     bool objetivo_encontrado = false;
-    if (buscando_negro && lectura >= LIMITE_NEGRO) objetivo_encontrado = true;
-    if (!buscando_negro && lectura <= LIMITE_BLANCO) objetivo_encontrado = true;
+    if (buscando_negro && lectura >= LIMITE_NEGRO)
+      objetivo_encontrado = true;
+    if (!buscando_negro && lectura <= LIMITE_BLANCO)
+      objetivo_encontrado = true;
 
     if (objetivo_encontrado) {
       if (fase_aproximacion) {
@@ -126,11 +144,11 @@ void loopHoming() {
 
         // Invertir dirección física
         if (estado_motor_homing == 1) { // Estaba Derecha
-           estado_motor_homing = -1;
-           digitalWrite(pinDireccion, LOW);
+          estado_motor_homing = -1;
+          digitalWrite(pinDireccion, LOW);
         } else { // Estaba Izquierda
-           estado_motor_homing = 1;
-           digitalWrite(pinDireccion, HIGH);
+          estado_motor_homing = 1;
+          digitalWrite(pinDireccion, HIGH);
         }
         Serial2.println(">>> TRANSICION DETECTADA -> Iniciando Barrido Local");
       } else {
@@ -138,12 +156,12 @@ void loopHoming() {
         estado_motor_homing = 0;
         homingCompletado = true;
         homingIniciado = false;
-        
+
         // Reset AccelStepper
         motorMaestro.setCurrentPosition(0);
         motorMaestro.setMaxSpeed(VELOCIDAD_MAXIMA);
         motorMaestro.setAcceleration(ACELERACION);
-        
+
         Serial2.println("--- HOME MAESTRO FIJADO (Auto) ---");
         Serial2.println("Controles:");
         Serial2.println(" Maestro: 'd' (Der), 'a' (Izq) [Mantener]");
@@ -161,10 +179,12 @@ void loopHoming() {
 
     // C. Oscilacion (Fase Fina)
     if (!fase_aproximacion) {
-      if (estado_motor_homing == 1 && posicion_relativa_homing >= limite_actual_busqueda) {
+      if (estado_motor_homing == 1 &&
+          posicion_relativa_homing >= limite_actual_busqueda) {
         estado_motor_homing = -1;
         digitalWrite(pinDireccion, LOW);
-      } else if (estado_motor_homing == -1 && posicion_relativa_homing <= -limite_actual_busqueda) {
+      } else if (estado_motor_homing == -1 &&
+                 posicion_relativa_homing <= -limite_actual_busqueda) {
         estado_motor_homing = 1;
         digitalWrite(pinDireccion, HIGH);
         limite_actual_busqueda += 500; // Expansion failsafe
@@ -178,8 +198,10 @@ void loopHoming() {
     delayMicroseconds(velocidad_homing_actual);
 
     // E. Actualizar Posicion Relativa
-    if (estado_motor_homing == 1) posicion_relativa_homing++;
-    else if (estado_motor_homing == -1) posicion_relativa_homing--;
+    if (estado_motor_homing == 1)
+      posicion_relativa_homing++;
+    else if (estado_motor_homing == -1)
+      posicion_relativa_homing--;
   }
 }
 
@@ -220,43 +242,86 @@ void loop() {
 
   // 1. Leer Entrada PC
   if (Serial2.available()) {
-    char key = tolower(Serial2.read()); // Convertir a minuscula para robustez
-    
-    // Joystick Maestro
-    if (key == 'd') {
-      currentAction = MAESTRO_DER;
-      lastInputTime = millis();
-    } else if (key == 'a') {
-      currentAction = MAESTRO_IZQ;
-      lastInputTime = millis();
-    } 
-    // Joystick Esclavo
-    else if (key == 'w') {
-      currentAction = ESCLAVO_SUBIR;
-      lastInputTime = millis();
-    } else if (key == 's') {
-      currentAction = ESCLAVO_BAJAR;
-      lastInputTime = millis();
+    String data = Serial2.readStringUntil('\n');
+    data.trim();
+    if (data.length() > 0) {
+      char key = tolower(data[0]);
+
+      // Joystick Maestro
+      if (key == 'd' && data.length() == 1) {
+        currentAction = MAESTRO_DER;
+        lastInputTime = millis();
+        runToTarget = false;
+      } else if (key == 'a' && data.length() == 1) {
+        currentAction = MAESTRO_IZQ;
+        lastInputTime = millis();
+        runToTarget = false;
+      }
+      // Joystick Esclavo
+      else if (key == 'w' && data.length() == 1) {
+        currentAction = ESCLAVO_SUBIR;
+        lastInputTime = millis();
+        runToTarget = false;
+      } else if (key == 's' && data.length() == 1) {
+        currentAction = ESCLAVO_BAJAR;
+        lastInputTime = millis();
+        runToTarget = false;
+      }
+      // Comandos Servo (Discretos)
+      else if (key == 'p' && data.length() == 1) {
+        sendRS485("P\n");
+        Serial2.println("Servo UP");
+      } else if (key == 'l' && data.length() == 1) {
+        sendRS485("L\n");
+        Serial2.println("Servo DOWN");
+      } else if (key == '+' && data.length() == 1) {
+        sendRS485("+\n");
+      } else if (key == '-' && data.length() == 1) {
+        sendRS485("-\n");
+      }
+      // Comandos Dibujo Absoluto
+      else if (key == 'x' && data.length() == 1) {
+        currentAction = ACCION_NADA;
+        runToTarget = false;
+        motorMaestro.stop();
+        sendRS485("X\n");
+      } else if (key == 'c' && data.length() == 1) {
+        Serial2.print("M_POS:");
+        Serial2.println(motorMaestro.currentPosition());
+        sendRS485("?\n");
+      } else if (key == 'g') {
+        long target = data.substring(1).toInt();
+        motorMaestro.moveTo(target);
+        runToTarget = true;
+        currentAction = ACCION_NADA;
+      } else if (key == 'e') {
+        long target = data.substring(1).toInt();
+        sendRS485("G" + String(target) + "\n");
+      }
     }
-    // Comandos Servo (Discretos)
-    else if (key == 'p') { sendRS485("P"); Serial2.println("Servo UP"); }
-    else if (key == 'l') { sendRS485("L"); Serial2.println("Servo DOWN"); }
-    else if (key == '+') { sendRS485("+"); }
-    else if (key == '-') { sendRS485("-"); }
   }
 
   // 2. Timeout Joystick
-  if (currentAction != ACCION_NADA && (millis() - lastInputTime > INPUT_TIMEOUT)) {
+  if (currentAction != ACCION_NADA &&
+      (millis() - lastInputTime > INPUT_TIMEOUT)) {
     currentAction = ACCION_NADA;
   }
 
   // 3. Ejecutar Accion
-  switch (currentAction) {
+  if (runToTarget) {
+    if (motorMaestro.distanceToGo() != 0) {
+      motorMaestro.run();
+    } else {
+      runToTarget = false;
+      Serial2.println("MDONE");
+    }
+  } else {
+    switch (currentAction) {
     case MAESTRO_DER:
       motorMaestro.setSpeed(VELOCIDAD_MANUAL);
       motorMaestro.runSpeed();
       break;
-    
+
     case MAESTRO_IZQ:
       motorMaestro.setSpeed(-VELOCIDAD_MANUAL);
       motorMaestro.runSpeed();
@@ -264,7 +329,7 @@ void loop() {
 
     case ESCLAVO_SUBIR:
       if (millis() - lastSlaveTxTime > SLAVE_TX_INTERVAL) {
-        sendRS485("W"); // Enviar "Keep Alive" W
+        sendRS485("W\n"); // Enviar "Keep Alive" W
         lastSlaveTxTime = millis();
         slaveMoving = true;
       }
@@ -273,7 +338,7 @@ void loop() {
 
     case ESCLAVO_BAJAR:
       if (millis() - lastSlaveTxTime > SLAVE_TX_INTERVAL) {
-        sendRS485("S"); // Enviar "Keep Alive" S
+        sendRS485("S\n"); // Enviar "Keep Alive" S
         lastSlaveTxTime = millis();
         slaveMoving = true;
       }
@@ -282,16 +347,17 @@ void loop() {
 
     case ACCION_NADA:
       motorMaestro.stop(); // Detener Maestro inmediatamente
-      
+
       // Detener Esclavo si se estaba moviendo
       if (slaveMoving) {
-        sendRS485("X");
+        sendRS485("X\n");
         Serial2.println("Stop Esclavo");
         slaveMoving = false;
       }
       break;
+    }
   }
-  
+
   // 4. Leer Respuestas Esclavo (Feedback Servo, etc.)
   if (Serial1.available()) {
     String response = Serial1.readStringUntil('\n');
