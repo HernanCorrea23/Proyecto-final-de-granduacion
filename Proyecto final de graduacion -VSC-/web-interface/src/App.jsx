@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Activity, Power, Crosshair, Zap, RotateCw, Save, Play, Square, Circle, Plus, Trash2 } from 'lucide-react';
+import { Activity, Power, Crosshair, Zap, RotateCw, Save, Play, Square, Circle, Plus, Trash2, Edit2, Check, X, Target } from 'lucide-react';
 import './App.css';
 
 function App() {
@@ -20,6 +20,10 @@ function App() {
     return saved ? JSON.parse(saved) : [];
   });
 
+  const [editingFigureId, setEditingFigureId] = useState(null);
+  const [editingName, setEditingName] = useState("");
+  const [expandedFigureId, setExpandedFigureId] = useState(null);
+
   const readerRef = useRef(null);
   const bufferRef = useRef("");
 
@@ -30,6 +34,10 @@ function App() {
     waitServo: false,
     resolve: null
   });
+
+  const offsetsRef = useRef({ m: 0, s: 0 });
+  const rawMPosRef = useRef(0);
+  const rawSPosRef = useRef(0);
 
   // Track keyboard state
   const keysPressed = useRef(new Set());
@@ -93,10 +101,14 @@ function App() {
       if (!trimmed) continue;
 
       if (trimmed.startsWith("M_POS:")) {
-        setMPos(parseInt(trimmed.substring(6)));
+        const absM = parseInt(trimmed.substring(6));
+        rawMPosRef.current = absM;
+        setMPos(absM - offsetsRef.current.m);
       } else if (trimmed.includes("S_POS:")) {
         const parts = trimmed.split("S_POS:");
-        setSPos(parseInt(parts[1]));
+        const absS = parseInt(parts[1]);
+        rawSPosRef.current = absS;
+        setSPos(absS - offsetsRef.current.s);
       } else if (trimmed === "MDONE") {
         executionState.current.mDone = true;
         checkStepComplete();
@@ -165,10 +177,10 @@ function App() {
       else if (keys.has('d')) { sendCommand('d'); isJogging = true; }
       else if (keys.has('w')) { sendCommand('w'); isJogging = true; }
       else if (keys.has('s')) { sendCommand('s'); isJogging = true; }
+      else if (keys.has('p')) { sendCommand('p'); isJogging = true; }
+      else if (keys.has('l')) { sendCommand('l'); isJogging = true; }
 
       // Handle discrete events (remove after trigger)
-      if (keys.has('p')) { sendCommand('p'); keys.delete('p'); }
-      if (keys.has('l')) { sendCommand('l'); keys.delete('l'); }
       if (keys.has('+')) { sendCommand('+'); keys.delete('+'); }
       if (keys.has('-')) { sendCommand('-'); keys.delete('-'); }
 
@@ -216,8 +228,10 @@ function App() {
       setStatus(`Ejecutando punto ${i + 1}/${sequence.length}`);
 
       if (step.type === "motor") {
-        sendCommand(`g${step.m}`);
-        sendCommand(`e${step.s}`);
+        const absM = step.m + offsetsRef.current.m;
+        const absS = step.s + offsetsRef.current.s;
+        sendCommand(`g${absM}`);
+        sendCommand(`e${absS}`);
 
         await Promise.race([
           new Promise(resolve => executionState.current.resolve = resolve),
@@ -263,12 +277,35 @@ function App() {
     setSavedFigures(savedFigures.filter(f => f.id !== id));
   };
 
+  const startEditingFigure = (fig) => {
+    setEditingFigureId(fig.id);
+    setEditingName(fig.name);
+  };
+
+  const saveEditedFigureName = (id) => {
+    if (!editingName.trim()) return;
+    setSavedFigures(savedFigures.map(f =>
+      f.id === id ? { ...f, name: editingName } : f
+    ));
+    setEditingFigureId(null);
+  };
+
+  const cancelEditingFigure = () => {
+    setEditingFigureId(null);
+  };
+
+  const handleSetZero = () => {
+    offsetsRef.current = { m: rawMPosRef.current, s: rawSPosRef.current };
+    setMPos(0);
+    setSPos(0);
+  };
+
   return (
     <div className="dashboard">
       <header className="topbar">
         <div className="logo">
           <Activity className="text-neon" size={24} />
-          <span>RoboDraw 5000</span>
+          <span>RoboDraw 2DoF</span>
         </div>
         <div className="topbar-controls">
           <div className={`status-badge ${connected ? 'status-on' : 'status-off'}`}>
@@ -302,17 +339,23 @@ function App() {
                   <div className="key-item"><kbd>P</kbd> / <kbd>L</kbd><span>Servo (Elevar/Bajar Pen)</span></div>
                   <div className="key-item"><kbd>+</kbd> / <kbd>-</kbd><span>Servo Ajuste Fino</span></div>
                 </div>
-                <div className="live-pos">
+                <div className="live-pos" style={{ alignItems: 'stretch' }}>
                   <div className="pos-box">Maestro: <span>{mPos}</span> pasos</div>
                   <div className="pos-box">Esclavo: <span>{sPos}</span> pasos</div>
+                  <button className="btn-zero" onClick={handleSetZero} title="Establecer origen en Cero (0, 0)">
+                    <Target size={24} />
+                  </button>
                 </div>
               </div>
             ) : (
               <div className="mode-grabacion">
                 <h3><Save size={20} /> Crear Figura</h3>
-                <div className="live-pos">
+                <div className="live-pos" style={{ alignItems: 'stretch' }}>
                   <div className="pos-box">Maestro: <span>{mPos}</span></div>
                   <div className="pos-box">Esclavo: <span>{sPos}</span></div>
+                  <button className="btn-zero" onClick={handleSetZero} title="Establecer origen en Cero (0, 0)">
+                    <Target size={24} />
+                  </button>
                 </div>
 
                 <div className="record-actions">
@@ -358,20 +401,57 @@ function App() {
           ) : (
             <div className="figures-grid">
               {savedFigures.map(fig => (
-                <div className="figure-card" key={fig.id}>
-                  <div className="fig-info">
-                    <Square size={24} className="text-neon" />
-                    <div>
-                      <h4>{fig.name}</h4>
-                      <small>{fig.points.length} puntos</small>
+                <div className="figure-card-container" key={fig.id}>
+                  <div className="figure-card" onDoubleClick={() => setExpandedFigureId(expandedFigureId === fig.id ? null : fig.id)}>
+                    <div className="fig-info">
+                      <Square size={24} className="text-neon" />
+                      <div>
+                        {editingFigureId === fig.id ? (
+                          <div style={{ display: 'flex', gap: '5px', alignItems: 'center' }}>
+                            <input
+                              autoFocus
+                              value={editingName}
+                              onChange={e => setEditingName(e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') saveEditedFigureName(fig.id);
+                                if (e.key === 'Escape') cancelEditingFigure();
+                                e.stopPropagation();
+                              }}
+                              style={{ padding: '0.2rem 0.5rem', fontSize: '1rem', width: '130px', margin: 0 }}
+                            />
+                            <button style={{ padding: '0.3rem', background: 'rgba(0, 230, 118, 0.1)', color: '#00E676' }} onClick={() => saveEditedFigureName(fig.id)}><Check size={16} /></button>
+                            <button style={{ padding: '0.3rem', background: 'rgba(255, 87, 34, 0.1)', color: '#FF5722' }} onClick={cancelEditingFigure}><X size={16} /></button>
+                          </div>
+                        ) : (
+                          <>
+                            <h4>{fig.name}</h4>
+                            <small>{fig.points.length} puntos (doble clic para ver)</small>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <div className="fig-actions">
+                      <button className="btn-play" onClick={() => executeSequence(fig.points)} disabled={!connected || executionState.current.running}>
+                        <Play size={16} /> Ejecutar
+                      </button>
+                      <button style={{ background: 'rgba(255, 255, 255, 0.1)', color: '#8D99AE', padding: '0.6rem' }} onClick={() => startEditingFigure(fig)} disabled={executionState.current.running}>
+                        <Edit2 size={16} />
+                      </button>
+                      <button className="btn-del" onClick={() => deleteFigure(fig.id)} disabled={executionState.current.running}><Trash2 size={16} /></button>
                     </div>
                   </div>
-                  <div className="fig-actions">
-                    <button className="btn-play" onClick={() => executeSequence(fig.points)} disabled={!connected || executionState.current.running}>
-                      <Play size={16} /> Ejecutar
-                    </button>
-                    <button className="btn-del" onClick={() => deleteFigure(fig.id)}><Trash2 size={16} /></button>
-                  </div>
+                  {expandedFigureId === fig.id && (
+                    <div className="figure-details">
+                      <ul className="sequence-list">
+                        {fig.points.map((pt, i) => (
+                          <li key={i}>
+                            <span className="step-num">{i + 1}</span>
+                            {pt.type === 'motor' ? `M: ${pt.m}, S: ${pt.s}` : `Acción: ${pt.label}`}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
