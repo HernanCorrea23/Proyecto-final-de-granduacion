@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Activity, Power, Crosshair, Zap, RotateCw, Save, Play, Square, Circle, Plus, Trash2, Edit2, Check, X, Target } from 'lucide-react';
+import { Activity, Power, Crosshair, Zap, RotateCw, Save, Play, Square, Circle, Plus, Trash2, Edit2, Check, X, Target, BarChart2 } from 'lucide-react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import './App.css';
 
 function App() {
@@ -23,6 +24,7 @@ function App() {
   const [editingFigureId, setEditingFigureId] = useState(null);
   const [editingName, setEditingName] = useState("");
   const [expandedFigureId, setExpandedFigureId] = useState(null);
+  const [expandedChartId, setExpandedChartId] = useState(null);
 
   const readerRef = useRef(null);
   const bufferRef = useRef("");
@@ -434,6 +436,9 @@ function App() {
                       <button className="btn-play" onClick={() => executeSequence(fig.points)} disabled={!connected || executionState.current.running}>
                         <Play size={16} /> Ejecutar
                       </button>
+                      <button style={{ background: 'rgba(0, 188, 212, 0.1)', color: '#00BCD4', padding: '0.6rem', border: '1px solid rgba(0, 188, 212, 0.3)' }} onClick={() => setExpandedChartId(expandedChartId === fig.id ? null : fig.id)} disabled={executionState.current.running} title="Ver Gráfica">
+                        <BarChart2 size={16} />
+                      </button>
                       <button style={{ background: 'rgba(255, 255, 255, 0.1)', color: '#8D99AE', padding: '0.6rem' }} onClick={() => startEditingFigure(fig)} disabled={executionState.current.running}>
                         <Edit2 size={16} />
                       </button>
@@ -450,6 +455,41 @@ function App() {
                           </li>
                         ))}
                       </ul>
+                    </div>
+                  )}
+                  {expandedChartId === fig.id && (
+                    <div className="figure-chart-details">
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: "1rem" }}>
+                        <h4 style={{ color: "#fff", fontSize: "0.95rem", margin: 0 }}>Movimiento de Motores</h4>
+                        <span style={{ color: "var(--neon-green)", fontSize: "0.85rem", background: "rgba(0, 230, 118, 0.1)", padding: "0.3rem 0.8rem", borderRadius: "12px", display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                          ⏱️ Tiempo Est.: ~{
+                            (fig.points.reduce((acc, curr, i, arr) => {
+                              if (i === 0) return acc + 0.5;
+                              if (curr.type === 'servo') return acc + 1.5;
+
+                              const prevMotors = arr.slice(0, i).reverse().find(p => p.type === 'motor');
+                              if (prevMotors && curr.type === 'motor') {
+                                const distM = Math.abs(curr.m - prevMotors.m);
+                                const distS = Math.abs(curr.s - prevMotors.s);
+                                // Estimación: ~15000 pasos/segundo en crucero, más ~0.3s por rampas de aceleración
+                                return acc + (Math.max(distM, distS) / 15000) + 0.3;
+                              }
+                              return acc + 1;
+                            }, 0)).toFixed(1)
+                          } s
+                        </span>
+                      </div>
+                      <ResponsiveContainer width="100%" height={320}>
+                        <LineChart margin={{ top: 20, right: 30, left: 20, bottom: 65 }} data={fig.points.filter(p => p.type === 'motor').map((p, i) => ({ paso: i + 1, Maestro: p.m, Esclavo: p.s }))}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                          <XAxis dataKey="paso" stroke="#8D99AE" tick={{ fill: '#8D99AE' }} label={{ value: 'Punto Registrado N°', position: 'bottom', offset: 15, fill: '#8D99AE', fontSize: 13 }} />
+                          <YAxis width={80} stroke="#8D99AE" tick={{ fill: '#8D99AE' }} label={{ value: 'Posición (Pasos)', angle: -90, position: 'insideLeft', offset: -5, fill: '#8D99AE', fontSize: 13 }} />
+                          <Tooltip contentStyle={{ backgroundColor: 'rgba(0,0,0,0.8)', border: '1px solid #00F0FF', borderRadius: '8px', color: '#fff' }} />
+                          <Legend verticalAlign="bottom" wrapperStyle={{ paddingTop: "40px" }} />
+                          <Line type="monotone" dataKey="Maestro" stroke="#00F0FF" strokeWidth={2} dot={{ r: 4, fill: '#00F0FF' }} activeDot={{ r: 8 }} />
+                          <Line type="monotone" dataKey="Esclavo" stroke="#FF00A0" strokeWidth={2} dot={{ r: 4, fill: '#FF00A0' }} />
+                        </LineChart>
+                      </ResponsiveContainer>
                     </div>
                   )}
                 </div>
