@@ -255,6 +255,24 @@ function App() {
       }
     }
 
+    // Regresar al origen (0, 0 visual)
+    setStatus("Regresando al origen (0, 0)...");
+    executionState.current.mDone = false;
+    executionState.current.sDone = false;
+    executionState.current.waitServo = false;
+
+    const absMZero = offsetsRef.current.m;
+    const absSZero = offsetsRef.current.s;
+    sendCommand(`g${absMZero}`);
+    sendCommand(`e${absSZero}`);
+
+    await Promise.race([
+      new Promise(resolve => executionState.current.resolve = resolve),
+      new Promise(resolve => setTimeout(resolve, 15000))
+    ]);
+
+    await new Promise(r => setTimeout(r, 100)); // Estabilización final
+
     executionState.current.running = false;
     setStatus("Figura completada.");
   };
