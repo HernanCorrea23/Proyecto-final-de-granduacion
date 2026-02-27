@@ -8,6 +8,7 @@ function App() {
   const [connected, setConnected] = useState(false);
   const [status, setStatus] = useState("Desconectado");
   const [writer, setWriter] = useState(null);
+  const writerRef = useRef(null);
 
   const [mode, setMode] = useState("libre"); // "libre" o "grabacion"
 
@@ -62,6 +63,7 @@ function App() {
       textEncoder.readable.pipeTo(p.writable);
       const w = textEncoder.writable.getWriter();
       setWriter(w);
+      writerRef.current = w;
 
       const textDecoder = new TextDecoderStream();
       p.readable.pipeTo(textDecoder.writable);
@@ -137,9 +139,10 @@ function App() {
   };
 
   const sendCommand = async (cmd) => {
-    if (!writer) return;
+    const w = writerRef.current || writer;
+    if (!w) return;
     try {
-      await writer.write(cmd + "\n");
+      await w.write(cmd + "\n");
     } catch (e) {
       console.error("Error writing:", e);
     }
@@ -150,7 +153,15 @@ function App() {
     const handleKeyDown = (e) => {
       if (e.repeat) return;
       if (e.target.tagName === 'INPUT') return;
-      keysPressed.current.add(e.key.toLowerCase());
+
+      const k = e.key.toLowerCase();
+      // Acciones discretas inmediatas
+      if (['p', 'l', '+', '-'].includes(k)) {
+        sendCommand(k);
+        return;
+      }
+
+      keysPressed.current.add(k);
     };
     const handleKeyUp = (e) => {
       keysPressed.current.delete(e.key.toLowerCase());
@@ -179,12 +190,6 @@ function App() {
       else if (keys.has('d')) { sendCommand('d'); isJogging = true; }
       else if (keys.has('w')) { sendCommand('w'); isJogging = true; }
       else if (keys.has('s')) { sendCommand('s'); isJogging = true; }
-      else if (keys.has('p')) { sendCommand('p'); isJogging = true; }
-      else if (keys.has('l')) { sendCommand('l'); isJogging = true; }
-
-      // Handle discrete events (remove after trigger)
-      if (keys.has('+')) { sendCommand('+'); keys.delete('+'); }
-      if (keys.has('-')) { sendCommand('-'); keys.delete('-'); }
 
       if (!isJogging && jogActive.current) {
         sendCommand('x'); // Stop immediate

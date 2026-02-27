@@ -22,8 +22,8 @@
 // Servo
 Servo miServo;
 const int anguloArriba = 10;
-const int anguloAbajo = 120;
-int anguloServoActual = 90;
+const int anguloAbajo = 140;
+int anguloServoActual = 140;
 
 // Variables de Control de Motor
 long lastCmdTime = 0;
@@ -45,11 +45,11 @@ void moverServo(int angulo) {
   if (angulo > 180)
     angulo = 180;
 
+  miServo.write(angulo);
   if (!isServoAttached) {
     miServo.attach(PIN_SERVO, 500, 2500);
     isServoAttached = true;
   }
-  miServo.write(angulo);
 
   // Setear el tiempo para desconectar despues (250ms) de este movimiento
   servoDetachTime = millis() + 250;
