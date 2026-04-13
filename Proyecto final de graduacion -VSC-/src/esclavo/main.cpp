@@ -51,8 +51,9 @@ void moverServo(int angulo) {
     isServoAttached = true;
   }
 
-  // Setear el tiempo para desconectar despues (250ms) de este movimiento
-  servoDetachTime = millis() + 250;
+  // Setear el tiempo para desconectar despues del movimiento
+  // Aumentado a 600ms para asegurar que el servo tenga tiempo de llegar a los extremos
+  servoDetachTime = millis() + 600;
   anguloServoActual = angulo;
 }
 

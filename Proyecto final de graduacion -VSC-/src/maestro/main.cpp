@@ -268,15 +268,15 @@ void loop() {
         runToTarget = false;
       }
       // Comandos Servo (Discretos)
-      else if (key == 'p' && data.length() == 1) {
+      else if (key == 'p') {
         sendRS485("P\n");
         Serial2.println("Servo UP");
-      } else if (key == 'l' && data.length() == 1) {
+      } else if (key == 'l') {
         sendRS485("L\n");
         Serial2.println("Servo DOWN");
-      } else if (key == '+' && data.length() == 1) {
+      } else if (key == '+') {
         sendRS485("+\n");
-      } else if (key == '-' && data.length() == 1) {
+      } else if (key == '-') {
         sendRS485("-\n");
       }
       // Comandos Dibujo Absoluto
