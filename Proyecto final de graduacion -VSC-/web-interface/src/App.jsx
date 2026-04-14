@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Activity, Power, Crosshair, Zap, RotateCw, Save, Play, Square, Circle, Plus, Trash2, Edit2, Check, X, Target, BarChart2 } from 'lucide-react';
+import { Activity, Power, Crosshair, Zap, RotateCw, Save, Play, Square, Circle, Plus, Trash2, Edit2, Check, X, Target, BarChart2, Download, Upload } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import './App.css';
 
@@ -288,6 +288,10 @@ function App() {
     setCurrentSequence([...currentSequence, { type: "servo", val, label }]);
   };
 
+  const deletePoint = (index) => {
+    setCurrentSequence(currentSequence.filter((_, i) => i !== index));
+  };
+
   const clearSequence = () => setCurrentSequence([]);
 
   const saveFigure = () => {
@@ -325,6 +329,52 @@ function App() {
     offsetsRef.current = { m: rawMPosRef.current, s: rawSPosRef.current };
     setMPos(0);
     setSPos(0);
+  };
+
+  const exportFigures = () => {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(savedFigures, null, 2));
+    const dlAnchorElem = document.createElement('a');
+    dlAnchorElem.setAttribute("href", dataStr);
+    dlAnchorElem.setAttribute("download", "robodraw_figures.json");
+    dlAnchorElem.click();
+  };
+
+  const exportSingleFigure = (fig) => {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify([fig], null, 2));
+    const dlAnchorElem = document.createElement('a');
+    dlAnchorElem.setAttribute("href", dataStr);
+    dlAnchorElem.setAttribute("download", `robodraw_${fig.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.json`);
+    dlAnchorElem.click();
+  };
+
+  const importFigures = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const imported = JSON.parse(event.target.result);
+        if (Array.isArray(imported)) {
+          // Verify format roughly
+          if (imported.length > 0 && (!imported[0].id || !imported[0].points)) {
+            alert("El archivo no tiene el formato correcto de RoboDraw.");
+            return;
+          }
+          // Avoid ID collisions by assigning new IDs
+          const adjusted = imported.map((fig, idx) => ({
+            ...fig,
+            id: Date.now() + idx
+          }));
+          setSavedFigures([...savedFigures, ...adjusted]);
+        } else {
+          alert("Formato de archivo inválido");
+        }
+      } catch (err) {
+        alert("Error al leer el archivo JSON");
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = null;
   };
 
   return (
@@ -402,14 +452,19 @@ function App() {
                   <h4>Puntos Registrados ({currentSequence.length})</h4>
                   <ul className="sequence-list">
                     {currentSequence.map((pt, i) => (
-                      <li key={i}>
-                        <span className="step-num">{i + 1}</span>
-                        {pt.type === 'motor' ? `Ir a M:${pt.m}, S:${pt.s}` : `Acción: ${pt.label}`}
+                      <li key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
+                          <span className="step-num">{i + 1}</span>
+                          <span>{pt.type === 'motor' ? `Ir a M:${pt.m}, S:${pt.s}` : `Acción: ${pt.label}`}</span>
+                        </div>
+                        <button style={{ background: 'transparent', border: 'none', color: '#EF4444', cursor: 'pointer', padding: '0.3rem' }} onClick={() => deletePoint(i)} title="Eliminar punto">
+                          <Trash2 size={16} />
+                        </button>
                       </li>
                     ))}
                     {currentSequence.length === 0 && <li className="empty-msg">No hay puntos aún. Mueve el eje libremente y registra posiciones.</li>}
                   </ul>
-                  {currentSequence.length > 0 && <button className="btn-text" onClick={clearSequence}>Limpiar</button>}
+                  {currentSequence.length > 0 && <button className="btn-text" onClick={clearSequence}>Limpiar Todo</button>}
                 </div>
 
                 <div className="save-form">
@@ -422,7 +477,17 @@ function App() {
         </div>
 
         <div className="panel figures-panel">
-          <h3><Play size={20} /> Figuras Guardadas</h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+            <h3 style={{ margin: 0 }}><Play size={20} /> Figuras Guardadas</h3>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button className="btn-text" onClick={exportFigures} title="Exportar Figuras" style={{ padding: '0.4rem', border: '1px solid rgba(255,255,255,0.1)' }}><Download size={18} /></button>
+              <label className="btn-text" title="Importar Figuras" style={{ padding: '0.4rem', border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer', display: 'flex', alignItems: 'center', borderRadius: '8px' }}>
+                <Upload size={18} />
+                <input type="file" accept=".json" style={{ display: 'none' }} onChange={importFigures} />
+              </label>
+            </div>
+          </div>
+          
           {savedFigures.length === 0 ? (
             <div className="empty-panel">
               <Circle className="icon-op" size={48} />
@@ -467,10 +532,13 @@ function App() {
                       <button style={{ background: 'rgba(0, 188, 212, 0.1)', color: '#00BCD4', padding: '0.6rem', border: '1px solid rgba(0, 188, 212, 0.3)' }} onClick={() => setExpandedChartId(expandedChartId === fig.id ? null : fig.id)} disabled={executionState.current.running} title="Ver Gráfica">
                         <BarChart2 size={16} />
                       </button>
-                      <button style={{ background: 'rgba(255, 255, 255, 0.1)', color: '#8D99AE', padding: '0.6rem' }} onClick={() => startEditingFigure(fig)} disabled={executionState.current.running}>
+                      <button style={{ background: 'rgba(255, 255, 255, 0.1)', color: '#8D99AE', padding: '0.6rem' }} onClick={() => exportSingleFigure(fig)} disabled={executionState.current.running} title="Exportar esta figura">
+                        <Download size={16} />
+                      </button>
+                      <button style={{ background: 'rgba(255, 255, 255, 0.1)', color: '#8D99AE', padding: '0.6rem' }} onClick={() => startEditingFigure(fig)} disabled={executionState.current.running} title="Renombrar">
                         <Edit2 size={16} />
                       </button>
-                      <button className="btn-del" onClick={() => deleteFigure(fig.id)} disabled={executionState.current.running}><Trash2 size={16} /></button>
+                      <button className="btn-del" onClick={() => deleteFigure(fig.id)} disabled={executionState.current.running} title="Eliminar"><Trash2 size={16} /></button>
                     </div>
                   </div>
                   {expandedFigureId === fig.id && (
