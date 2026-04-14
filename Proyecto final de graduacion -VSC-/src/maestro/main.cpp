@@ -229,6 +229,18 @@ void loop() {
           digitalWrite(pinDireccion, HIGH);
           Serial2.println("Homing: Negro -> Buscando BLANCO (Der)");
         }
+      } else if (cmd == 'm') {
+        // BYPASS: Saltar homing automático (Homing Manual habilitado)
+        homingCompletado = true;
+        homingIniciado = false;
+        estado_motor_homing = 0;
+        
+        motorMaestro.setCurrentPosition(0);
+        motorMaestro.setMaxSpeed(VELOCIDAD_MAXIMA);
+        motorMaestro.setAcceleration(ACELERACION);
+        
+        digitalWrite(pinHabilitar, LOW); // Asegurar que el motor esté habilitado para moverse
+        Serial2.println("Homing Omitido (Modo Manual). Controles WASD desbloqueados.");
       }
     }
 

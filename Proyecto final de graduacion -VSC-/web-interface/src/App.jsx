@@ -342,7 +342,7 @@ function App() {
           <button className="btn-homing" onClick={() => sendCommand('h')} disabled={executionState.current.running || !connected}>
             <RotateCw size={18} /> Homing Auto
           </button>
-          <button className="btn-homing" onClick={() => setManualHomingActive(true)} title="Iniciar proceso de Homing Manual" disabled={executionState.current.running || !connected} style={{ borderColor: 'var(--neon-green)', color: 'var(--neon-green)' }}>
+          <button className="btn-homing" onClick={() => { sendCommand('m'); setManualHomingActive(true); }} title="Iniciar proceso de Homing Manual" disabled={executionState.current.running || !connected} style={{ borderColor: 'var(--neon-green)', color: 'var(--neon-green)' }}>
             <Target size={18} /> Homing Manual
           </button>
           <button className="btn-connect" onClick={connect} disabled={connected}>
