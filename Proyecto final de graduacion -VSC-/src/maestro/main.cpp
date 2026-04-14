@@ -248,21 +248,21 @@ void loop() {
       char key = tolower(data[0]);
 
       // Joystick Maestro
-      if (key == 'd' && data.length() == 1) {
+      if (key == 'd') {
         currentAction = MAESTRO_DER;
         lastInputTime = millis();
         runToTarget = false;
-      } else if (key == 'a' && data.length() == 1) {
+      } else if (key == 'a') {
         currentAction = MAESTRO_IZQ;
         lastInputTime = millis();
         runToTarget = false;
       }
       // Joystick Esclavo
-      else if (key == 'w' && data.length() == 1) {
+      else if (key == 'w') {
         currentAction = ESCLAVO_SUBIR;
         lastInputTime = millis();
         runToTarget = false;
-      } else if (key == 's' && data.length() == 1) {
+      } else if (key == 's') {
         currentAction = ESCLAVO_BAJAR;
         lastInputTime = millis();
         runToTarget = false;

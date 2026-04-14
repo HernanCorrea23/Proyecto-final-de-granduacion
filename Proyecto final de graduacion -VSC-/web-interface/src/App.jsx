@@ -22,6 +22,8 @@ function App() {
     return saved ? JSON.parse(saved) : [];
   });
 
+  const [manualHomingActive, setManualHomingActive] = useState(false);
+
   const [editingFigureId, setEditingFigureId] = useState(null);
   const [editingName, setEditingName] = useState("");
   const [expandedFigureId, setExpandedFigureId] = useState(null);
@@ -338,7 +340,10 @@ function App() {
             {status}
           </div>
           <button className="btn-homing" onClick={() => sendCommand('h')} disabled={executionState.current.running || !connected}>
-            <RotateCw size={18} /> Homing Automático
+            <RotateCw size={18} /> Homing Auto
+          </button>
+          <button className="btn-homing" onClick={() => setManualHomingActive(true)} title="Iniciar proceso de Homing Manual" disabled={executionState.current.running || !connected} style={{ borderColor: 'var(--neon-green)', color: 'var(--neon-green)' }}>
+            <Target size={18} /> Homing Manual
           </button>
           <button className="btn-connect" onClick={connect} disabled={connected}>
             <Power size={18} /> {connected ? "Conectado" : "Conectar Serial"}
@@ -521,6 +526,39 @@ function App() {
           )}
         </div>
       </main>
+
+      {manualHomingActive && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <h3 style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.8rem', color: '#fff', fontSize: '1.4rem' }}>
+              <Target size={28} style={{ color: 'var(--neon-green)' }} /> 
+              Configuración de Homing Manual
+            </h3>
+            <p>Usa las teclas <strong><kbd>A</kbd> <kbd>D</kbd> <kbd>W</kbd> <kbd>S</kbd></strong> de tu teclado para posicionar físicamente el brazo robótico en el origen deseado.</p>
+            
+            <div className="live-pos" style={{ justifyContent: 'center', margin: '2rem 0' }}>
+              <div className="pos-box">Maestro: <span>{mPos}</span> pasos</div>
+              <div className="pos-box">Esclavo: <span>{sPos}</span> pasos</div>
+            </div>
+            
+            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+              <button 
+                onClick={() => {
+                  handleSetZero();
+                  setManualHomingActive(false);
+                }} 
+                style={{ background: 'var(--neon-green)', color: '#000', padding: '0.8rem 1.5rem', fontSize: '1rem' }}>
+                <Check size={20} /> Asignar Origen (0,0)
+              </button>
+              <button 
+                onClick={() => setManualHomingActive(false)} 
+                style={{ background: 'transparent', border: '1px solid var(--neon-orange)', color: 'var(--neon-orange)', padding: '0.8rem 1.5rem', fontSize: '1rem' }}>
+                <X size={20} /> Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -26,7 +26,7 @@ const int anguloAbajo = 140;
 int anguloServoActual = 140;
 
 // Variables de Control de Motor
-long lastCmdTime = 0;
+unsigned long lastCmdTime = 0;
 const int CMD_TIMEOUT = 200; // ms
 int moveState = 0;           // 0: Stop, 1: Up (W), -1: Down (S)
 const int STEP_DELAY =
@@ -36,7 +36,7 @@ long currentPosition = 0;
 long targetPosition = 0;
 bool targetMode = false;
 
-long servoDetachTime = 0;
+unsigned long servoDetachTime = 0;
 bool isServoAttached = false;
 
 void moverServo(int angulo) {
@@ -45,15 +45,17 @@ void moverServo(int angulo) {
   if (angulo > 180)
     angulo = 180;
 
-  miServo.write(angulo);
   if (!isServoAttached) {
     miServo.attach(PIN_SERVO, 500, 2500);
     isServoAttached = true;
   }
+  
+  // Escribir el angulo SIEMPRE DESPUES del attach por seguridad de la libreria
+  miServo.write(angulo);
 
   // Setear el tiempo para desconectar despues del movimiento
-  // Aumentado a 600ms para asegurar que el servo tenga tiempo de llegar a los extremos
-  servoDetachTime = millis() + 600;
+  // Aumentado a 1500ms para asegurar holgadamente la llegada bajo esfuerzo
+  servoDetachTime = millis() + 1500;
   anguloServoActual = angulo;
 }
 
